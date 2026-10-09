@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>NNC Reporter</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--line:#dfe3e8;--ink:#1b1f24;--mut:#5c6672;
+        --accent:#00693e;--warn:#a34a00;--bad:#b3261e;--ok:#1b6e2f}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--accent);color:#fff;padding:14px 20px;display:flex;
+         align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header .pill{background:rgba(255,255,255,.18);padding:3px 9px;border-radius:99px;font-size:13px}
+  main{max-width:1500px;margin:0 auto;padding:18px}
+  .row{display:grid;grid-template-columns:1fr 420px;gap:18px;align-items:start}
+  @media(max-width:1100px){.row{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  #drop{border:2px dashed #b9c1ca;border-radius:10px;padding:22px;text-align:center;
+        color:var(--mut);background:#fff;cursor:pointer;margin-bottom:14px}
+  #drop.over{border-color:var(--accent);background:#eef7f1;color:var(--accent)}
+  button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:7px;
+         padding:7px 12px;cursor:pointer}
+  button:hover{background:#f0f2f4}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  button.primary:hover{filter:brightness(1.08)}
+  button.danger{color:var(--bad);border-color:#e3c3c0}
+  button.danger:hover{background:#fdeceb}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:14px}
+  .tabs button{border:none;background:none;border-bottom:3px solid transparent;
+        border-radius:0;padding:9px 14px;color:var(--mut);font-weight:600}
+  .tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .tabs button:hover{background:#eef1f4}
+  .bulk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#eef4f0;
+        border:1px solid #d3e3d9;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+  .bulk label{font-size:14px;display:flex;gap:7px;align-items:center;cursor:pointer}
+  .item{display:grid;grid-template-columns:26px 150px 1fr;gap:12px;border:1px solid var(--line);
+        border-radius:10px;padding:12px;margin-bottom:12px;background:#fff}
+  .item img{width:150px;height:110px;object-fit:cover;border-radius:6px;cursor:zoom-in;background:#eee}
+  .item .meta{font-size:13px;color:var(--mut);margin-bottom:6px}
+  .item input[type=text],.item textarea,.item select{width:100%;padding:6px 8px;
+        border:1px solid var(--line);border-radius:6px;font:inherit}
+  .item textarea{min-height:74px;resize:vertical}
+  .flags{font-size:13px;color:var(--warn);margin:6px 0}
+  .acts{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+  .tick{width:18px;height:18px;margin-top:4px;cursor:pointer}
+  .tag{font-size:12px;padding:2px 8px;border-radius:99px;background:#eef1f4;color:var(--mut)}
+  .tag.ok{background:#e3f0e6;color:var(--ok)}
+  .tag.wait{background:#fff3e0;color:var(--warn)}
+  .tag.err{background:#fdeceb;color:var(--bad)}
+  .done{display:grid;grid-template-columns:26px 74px 1fr auto;gap:12px;align-items:center;
+        border:1px solid var(--line);border-radius:9px;padding:10px;margin-bottom:9px;background:#fff}
+  .done img{width:74px;height:56px;object-fit:cover;border-radius:5px;cursor:zoom-in;background:#eee}
+  .nophoto{display:flex;align-items:center;justify-content:center;text-align:center;
+        color:var(--mut);font-size:12px;background:#eef1f4;border-radius:6px;
+        border:1px dashed var(--line)}
+  .item .nophoto{width:150px;height:110px}
+  .done .nophoto{width:74px;height:56px;border-radius:5px}
+  #m-results button{display:block;width:100%;text-align:left;margin-top:4px;font-size:13px}
+  .done .t{font-weight:600;font-size:14px}
+  .done .s{font-size:12.5px;color:var(--mut)}
+  #map{height:320px;border-radius:8px;border:1px solid var(--line)}
+  pre#log{background:#111;color:#d6f5d6;padding:12px;border-radius:8px;max-height:300px;
+          overflow:auto;font-size:12.5px;white-space:pre-wrap;margin:0}
+  .muted{color:var(--mut);font-size:13px}
+  a{color:var(--accent)}
+  h2{font-size:15px;margin:0 0 10px}
+  #toast{position:fixed;right:18px;bottom:18px;background:#1b1f24;color:#fff;padding:11px 15px;
+         border-radius:8px;max-width:420px;display:none;font-size:14px;white-space:pre-wrap;z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <h1>NNC Reporter</h1>
+  <select id="who" onchange="pickProfile(this)" title="Whose reports, logins and map"
+    style="font-size:13px;padding:4px 8px"></select>
+  <button style="font-size:13px;padding:4px 9px" onclick="editProfile()"
+    title="Name, contact details and council sign-in for this profile">Edit profile</button>
+  <span class="pill" id="s-new">0 to submit</span>
+  <span class="pill" id="s-sub">0 submitted</span>
+  <span class="pill" id="s-ai">AI —</span>
+  <span class="pill" id="s-w3w">W3W —</span>
+  <span class="pill" id="s-map" title="Mapbox token for the interactive maps">Mapbox —</span>
+  <span class="pill" id="s-busy" style="display:none">browser open</span>
+</header>
+
+<main>
+<div id="profilePage" class="card" style="display:none;max-width:760px"></div>
+
+<div id="mainPage">
+<div class="bar">
+  <button class="primary" onclick="fileInput.click()">Add photos…</button>
+  <button onclick="openManual()"
+    title="Noise, smells, smoke, light — issues with no photo to read a location from">
+    New report without a photo…</button>
+  <a id="mymaplink" href="#" target="_blank" hidden><button>Open Google My Map</button></a>
+  <button onclick="window.open('/api/webmap')"
+    title="This profile's submissions and the My Map's pins on a live Mapbox map — ward borders, area statistics, clustered, colour-coded, filterable">
+    Interactive map</button>
+  <button onclick="window.open('/api/dashboard')"
+    title="Where the council has got to with everything reported - what is still live, what has passed the 90-day promise, and what the council has never answered">
+    Reporting dashboard</button>
+  <button onclick="importMyMap()"
+    title="Fetch the Google My Map and merge its pins into the interactive map (pins the tool exported are recognised, not doubled)">
+    Merge My Map pins</button>
+  <button onclick="exportWebmaps()"
+    title="Write a self-contained interactive map HTML file for every profile, next to each profile's KML">
+    Write interactive maps</button>
+  <button onclick="refreshCats()">Refresh council categories</button>
+  <button class="danger" onclick="removeAll()">Remove all</button>
+  <span class="muted" id="mapfolder"></span>
+</div>
+
+<div class="row">
+  <div>
+    <div id="drop" onclick="fileInput.click()">
+      Drop photos here (JPEG / HEIC / PNG) — GPS is read from each file
+    </div>
+    <input id="fileInput" type="file" multiple accept="image/*" style="display:none">
+
+    <div id="manualBox" class="card" style="display:none">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">
+        <span>New report without a photo</span>
+        <button onclick="closeManual()">Close</button>
+      </h2>
+      <p class="muted" style="margin:0 0 8px">For noise, smells, smoke, light,
+        accumulations and anything else with nothing to photograph. Find the
+        location by address or postcode — or just click the spot on the map.</p>
+      <select id="m-cat" style="width:100%"></select>
+      <input id="m-title" type="text" style="margin-top:6px;width:100%"
+        placeholder="Summary of the problem">
+      <textarea id="m-detail" style="margin-top:6px;width:100%" rows="3"
+        placeholder="Describe the issue — for nuisances, include dates and times it happens"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input id="m-search" type="text" style="flex:1"
+          placeholder="Address or postcode to search for"
+          onkeydown="if(event.key==='Enter')geoSearch()">
+        <button onclick="geoSearch()">Search</button>
+      </div>
+      <div id="m-results"></div>
+      <div class="muted" id="m-loc" style="margin-top:6px">No location set yet —
+        search above, or click the map on the right.</div>
+      <div class="acts" style="margin-top:8px">
+        <button class="primary" onclick="saveManual()">Add to the queue</button>
+      </div>
+    </div>
+
+    <div id="emailBox" class="card" style="display:none">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">
+        <span>Add council emails</span>
+        <button onclick="closeEmailBox()">Close</button>
+      </h2>
+      <p class="muted" style="margin:0 0 8px">Save the council's email from Outlook
+        (drag it to your desktop, or File → Save As → .eml) and choose it here — or
+        paste the email's text below. The reference number is matched to its case
+        and the update recorded on that case's timeline. Re-adding the same email
+        is harmless.</p>
+      <input id="emlInput" type="file" multiple accept=".eml,message/rfc822">
+      <textarea id="emlText" style="margin-top:8px;width:100%;padding:8px;
+        border:1px solid var(--line);border-radius:6px;font:inherit" rows="4"
+        placeholder="…or paste the email text here (subject line first, ideally)"></textarea>
+      <div class="acts" style="margin-top:8px">
+        <button class="primary" onclick="sendEmails()">Match to cases</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button id="tab-todo" class="on" onclick="setTab('todo')">To submit</button>
+      <button id="tab-submitted" onclick="setTab('submitted')">Submitted</button>
+      <button id="tab-mapped" onclick="setTab('mapped')">On the map</button>
+      <button id="tab-completed" onclick="setTab('completed')">Completed</button>
+    </div>
+    <div id="bulk"></div>
+    <div id="summaryBox" class="card" style="display:none">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">
+        <span>Reference, street and description — <span id="summaryCount"></span></span>
+        <span>
+          <button class="primary" onclick="copySummary()">Copy</button>
+          <button onclick="closeSummary()">Close</button>
+        </span>
+      </h2>
+      <textarea id="summaryText" readonly rows="8" style="width:100%;padding:8px;
+        border:1px solid var(--line);border-radius:6px;font:13px/1.5 ui-monospace,
+        Consolas,monospace;resize:vertical"></textarea>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">Locations
+        <button style="font-size:13px;padding:3px 9px" onclick="recentre()">Recentre</button>
+      </h2>
+      <div id="map"></div>
+    </div>
+    <div class="card">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">Browser session
+        <button style="font-size:13px;padding:3px 9px" onclick="copyLog(this)"
+          title="Copy this log, to send on when something goes wrong">Copy</button>
+      </h2>
+      <pre id="log">Nothing running.
+
+Tick the reports you want, then "Prefill &amp; submit selected". One browser opens
+with a tab per report, each filled in and stopped at its Submit button. Submit them
+in any order - each one is noticed and its reference recorded.</pre>
+    </div>
+    <div class="card"><h2>Adding pins to the Google map</h2>
+      <ol class="muted" style="margin:0;padding-left:20px">
+        <li>On the <b>Submitted</b> tab, tick the reports you want.</li>
+        <li>Click <b>Write map layer from selected</b> — they move to <b>On the map</b>.</li>
+        <li>In My Maps: <b>Add layer → Import</b>, choose <code>NNC_Reports.kml</code>.</li>
+        <li>Next time you export, the file is replaced, so anything currently
+            <b>On the map</b> moves to <b>Completed</b> — it is already in My Maps as
+            its own layer.</li>
+      </ol>
+      <p class="muted" style="margin:10px 0 0"><b>Photos.</b> My Maps can only show an
+      image it can fetch from the web, so pins carry the council's published photo
+      where the tool captured its address — those appear automatically. Copies of all
+      the photos are also written to <code>NNC_Reports_photos</code>, named to match
+      each pin, for attaching by hand to any that have no published URL.</p>
+    </div>
+  </div>
+</div>
+</div><!-- /mainPage -->
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let CATS = [], REPORTS = [], MAP, MARKERS, POLL = null, BUSY = false;
+let TAB = 'todo';
+const TABS = ['todo', 'submitted', 'mapped', 'completed'];
+const SEL = {todo: new Set(), submitted: new Set(), mapped: new Set(),
+             completed: new Set()};
+let CENTRE = {lat: 52.4914, lon: -0.6923, zoom: 13};   // Corby until config says otherwise
+
+const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function toast(msg, ms = 5500){
+  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', ms);
+}
+
+const DONE = ['submitted', 'mapped', 'completed'];
+const isDone = r => DONE.includes(r.status);
+const inTab = (r, t) => t === 'todo' ? !isDone(r) : r.status === t;
+const listFor = t => REPORTS.filter(r => inTab(r, t));
+const todoList = () => listFor('todo');
+const shown = () => listFor(TAB);
+
+async function load(){
+  const s = await (await fetch('/api/state')).json();
+  CATS = s.categories; REPORTS = s.reports; UPDATES = s.update_counts || {};
+  if (s.config.map) CENTRE = s.config.map;
+  $('#s-ai').textContent  = 'AI ' + (s.config.classify_on ? 'on' : 'off');
+  $('#s-w3w').textContent = 'W3W ' + (s.config.w3w_on ? 'on' : 'off');
+  $('#s-map').textContent = 'Mapbox ' + (s.config.mapbox_on ? 'on' : 'off');
+  $('#mapfolder').textContent = 'Map files go to: ' + s.config.map_folder
+    + (s.config.map_file ? ' → ' + s.config.map_file : '');
+  const mm = $('#mymaplink');
+  mm.hidden = !s.my_map_url;
+  if (s.my_map_url) mm.href = s.my_map_url;
+  showProfiles(s.profiles || [], s.profile);
+  prune(); render();
+}
+
+// ---- profiles: one person's reports, logins and map layer at a time --------
+function showProfiles(list, active){
+  const sel = $('#who');
+  sel.innerHTML = list.map(p =>
+      `<option value="${esc(p.name)}"${p.name === active ? ' selected' : ''}>${esc(p.label)}</option>`
+    ).join('') + '<option value="+">New profile…</option>';
+}
+
+async function pickProfile(sel){
+  const name = sel.value;
+  closeProfile();
+  if (name === '+') return newProfile();
+  const res = await fetch('/api/profile', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+  if (!res.ok){ toast('Could not switch: ' + (await res.text())); await load(); return; }
+  SEL.todo.clear(); SEL.submitted.clear(); SEL.mapped.clear(); SEL.completed.clear();
+  await load();
+  toast('Now working as ' + (sel.options[sel.selectedIndex] || {}).text
+        + '. Their reports, logins and map file only.');
+}
+
+// ---- the profile editor ---------------------------------------------------
+// Everything the council forms are filled in with, on one page. Blank is fine:
+// a blank field is simply one the walker will leave for you to type.
+const PROFILE_FIELDS = [
+  {group: 'Who is reporting', fields: [
+    ['full_name', 'Full name', 'text', 'As the council should see it'],
+    ['email', 'Email address', 'email', 'Where the council sends the reference'],
+    ['phone', 'Phone number', 'text', 'Optional'],
+    ['address_line', 'Address, first line', 'text', 'Your own address, for the forms that ask'],
+    ['address_postcode', 'Postcode', 'text', ''],
+    ['show_name_publicly', 'Show my name publicly on FixMyStreet', 'check', ''],
+  ]},
+  {group: 'Highways sign-in', fields: [
+    ['highways_email', 'Sign-in email', 'email', 'For highways.northnorthants.gov.uk'],
+    ['highways_password', 'Password', 'password', 'Kept in config.json on this computer'],
+    ['highways_enabled', 'Sign in automatically', 'check', ''],
+  ]},
+  {group: 'Map layer', fields: [
+    ['map_folder', 'Folder for the map files', 'text', 'Relative to the app folder, or a full path'],
+    ['kml_filename', 'KML file', 'text', 'What you import into Google My Maps'],
+    ['csv_filename', 'CSV file', 'text', ''],
+  ]},
+];
+
+function profileValue(p, key){
+  if (key.startsWith('highways_')) return p.highways_login[key.slice(9)];
+  if (['map_folder', 'kml_filename', 'csv_filename'].includes(key)) return p.export[key];
+  return p.reporter[key];
+}
+
+async function editProfile(name){
+  name = name || $('#who').value;
+  if (name === '+') return;
+  const res = await fetch('/api/profiles/' + encodeURIComponent(name));
+  if (!res.ok) return toast('Could not open that profile: ' + (await res.text()));
+  const p = await res.json();
+  const row = ([key, label, type, hint]) => {
+    const v = profileValue(p, key);
+    if (type === 'check')
+      return `<label style="display:flex;gap:8px;align-items:center;margin:8px 0">
+        <input type="checkbox" id="pf-${key}"${v ? ' checked' : ''}> ${label}</label>`;
+    return `<label style="display:block;margin:10px 0">
+      <div style="font-size:13px;margin-bottom:3px">${label}</div>
+      <input type="${type}" id="pf-${key}" style="width:100%" value="${esc(v || '')}">
+      ${hint ? `<div class="muted" style="font-size:12px;margin-top:2px">${hint}</div>` : ''}
+    </label>`;
+  };
+  $('#profilePage').innerHTML = `
+    <h2 style="display:flex;justify-content:space-between;align-items:center">
+      <span>Editing “${esc(p.reporter.full_name || p.name)}”${p.is_main ? ' — your main profile' : ''}</span>
+      <span><button onclick="closeProfile()">Cancel</button>
+            <button class="primary" onclick="saveProfile('${esc(p.name)}')">Save</button></span>
+    </h2>
+    <div class="muted" style="margin-bottom:10px">
+      ${p.report_count} report${p.report_count === 1 ? '' : 's'} in this profile ·
+      kept in <code>${esc(p.data_folder)}</code>
+    </div>
+    ${p.overridden.length ? `<div class="flags">⚠ ${esc(p.overridden.join(' and '))}
+      ${p.overridden.length > 1 ? 'are' : 'is'} set outside this folder
+      (~/.nnc-reporter/keys.json or an environment variable), and that wins over
+      what you type here.</div>` : ''}
+    ${PROFILE_FIELDS.map(g => `<h2 style="margin-top:16px">${g.group}</h2>
+      ${g.fields.map(row).join('')}`).join('')}
+    <div class="acts" style="margin-top:16px">
+      <button class="primary" onclick="saveProfile('${esc(p.name)}')">Save</button>
+      <button onclick="closeProfile()">Cancel</button>
+      ${p.is_main ? '' : `<button class="danger" onclick="dropProfile('${esc(p.name)}')"
+        title="Removes the profile. Its reports and photos stay on disk.">Remove this profile</button>`}
+    </div>`;
+  $('#profilePage').style.display = '';
+  $('#mainPage').style.display = 'none';
+  window.scrollTo(0, 0);
+}
+
+function closeProfile(){
+  $('#profilePage').style.display = 'none';
+  $('#mainPage').style.display = '';
+}
+
+async function saveProfile(name){
+  const body = {};
+  PROFILE_FIELDS.forEach(g => g.fields.forEach(([key, , type]) => {
+    const el = $('#pf-' + key);
+    if (el) body[key] = type === 'check' ? el.checked : el.value.trim();
+  }));
+  const res = await fetch('/api/profiles/' + encodeURIComponent(name), {method: 'PATCH',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res.ok) return toast('Could not save: ' + (await res.text()));
+  closeProfile();
+  await load();
+  toast('Saved. New reports will use these details.');
+}
+
+async function dropProfile(name){
+  if (!confirm(`Remove the profile "${name}"?\n\nIts reports and photos stay on disk, `
+      + `so you can add the profile again later and they will still be there.`)) return;
+  const res = await fetch('/api/profiles/' + encodeURIComponent(name), {method: 'DELETE'});
+  if (!res.ok) return toast('Could not remove: ' + (await res.text()));
+  closeProfile();
+  await load();
+  toast((await res.json()).note);
+}
+
+async function newProfile(){
+  const full_name = prompt('Name of the person reporting (as the council should see it)');
+  if (!full_name){ await load(); return; }
+  const res = await fetch('/api/profiles', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: full_name, full_name})});
+  if (!res.ok){ toast('Could not create: ' + (await res.text())); await load(); return; }
+  const d = await res.json();
+  await fetch('/api/profile', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: d.created})});
+  await load();
+  toast(`Created "${full_name}" and switched to it — now fill in the rest.`);
+  editProfile(d.created);          // straight into the editor for the details
+}
+
+function prune(){   // drop selections for reports that moved on
+  TABS.forEach(t => {
+    const ids = new Set(listFor(t).map(r => r.id));
+    [...SEL[t]].forEach(i => { if (!ids.has(i)) SEL[t].delete(i); });
+  });
+}
+
+function setTab(t){ TAB = t;
+  TABS.forEach(x => $('#tab-' + x).classList.toggle('on', x === t));
+  closeSummary();
+  render();
+}
+
+const LABELS = {todo: 'To submit', submitted: 'Submitted', mapped: 'On the map',
+                completed: 'Completed'};
+
+function stats(){
+  TABS.forEach(t => $('#tab-' + t).textContent =
+    `${LABELS[t]} (${listFor(t).length})`);
+  $('#s-new').textContent = todoList().length + ' to submit';
+  $('#s-sub').textContent = listFor('submitted').length + ' awaiting the map';
+  $('#s-busy').style.display = BUSY ? '' : 'none';
+}
+
+function toggle(id, on){
+  const set = SEL[TAB];
+  on ? set.add(id) : set.delete(id);
+  renderBulk();
+  const cb = document.getElementById('cb' + id);
+  if (cb) cb.checked = on;
+}
+
+function selectAll(on){
+  const set = SEL[TAB]; set.clear();
+  if (on) shown().forEach(r => set.add(r.id));
+  render();
+}
+
+function catOptions(sel){
+  let html = '<option value="">— choose a category —</option>';
+  let group = null;
+  for (const c of CATS){
+    if (c.group !== group){
+      if (group !== null && group !== '') html += '</optgroup>';
+      group = c.group;
+      if (group) html += `<optgroup label="${esc(group)}">`;
+    }
+    html += `<option${c.name === sel ? ' selected' : ''}>${esc(c.name)}</option>`;
+  }
+  return html;
+}
+
+function renderBulk(){
+  const rows = shown(), set = SEL[TAB], n = set.size;
+  const all = rows.length > 0 && n === rows.length;
+  if (!rows.length){ $('#bulk').innerHTML = ''; return; }
+  const selectAllBox = `<label><input type="checkbox" ${all ? 'checked' : ''}
+      onchange="selectAll(this.checked)"> Select all (${rows.length})</label>`;
+
+  if (TAB === 'todo'){
+    const noCat = rows.filter(r => set.has(r.id) && !r.category).length;
+    $('#bulk').innerHTML = `<div class="bulk">${selectAllBox}
+      <button class="primary" ${n && !BUSY ? '' : 'disabled'} onclick="submitSelected()">
+        Prefill &amp; submit selected${n ? ' (' + n + ')' : ''}</button>
+      ${noCat ? `<span class="muted" style="color:var(--warn)">${noCat} of those
+         has no category yet — pick one first</span>` : ''}
+      ${BUSY ? '<span class="muted">a browser session is already open</span>' : ''}
+    </div>`;
+  } else if (TAB === 'submitted'){
+    $('#bulk').innerHTML = `<div class="bulk">${selectAllBox}
+      <button class="primary" ${n ? '' : 'disabled'} onclick="exportSelected()">
+        Write map layer from selected${n ? ' (' + n + ')' : ''}</button>
+      <button ${n ? '' : 'disabled'} onclick="summarySelected()">
+        List ref, street &amp; description${n ? ' (' + n + ')' : ''}</button>
+      ${updateButtons(n)}
+      <span class="muted">writing the file moves these to “On the map”</span>
+    </div>`;
+  } else if (TAB === 'mapped'){
+    $('#bulk').innerHTML = `<div class="bulk">${selectAllBox}
+      <button ${n ? '' : 'disabled'} onclick="summarySelected()">
+        List ref, street &amp; description${n ? ' (' + n + ')' : ''}</button>
+      ${updateButtons(n)}
+      <span>These are the pins in <code>NNC_Reports.kml</code> as it stands.
+      Import it into My Maps; the next export moves them to Completed.</span>
+    </div>`;
+  } else {
+    $('#bulk').innerHTML = `<div class="bulk">${selectAllBox}
+      <button ${n ? '' : 'disabled'} onclick="summarySelected()">
+        List ref, street &amp; description${n ? ' (' + n + ')' : ''}</button>
+      <button ${n ? '' : 'disabled'} onclick="exportSelected()">
+        Re-export selected${n ? ' (' + n + ')' : ''}</button>
+      ${updateButtons(n)}
+      <span class="muted">Already imported into My Maps and superseded by a later
+      export. Kept as history so you are warned about re-reporting the same spot.</span>
+    </div>`;
+  }
+}
+
+function render(){
+  stats(); renderBulk();
+  const rows = shown(), set = SEL[TAB], l = $('#list');
+  if (!rows.length){
+    const empty = {
+      todo: 'Nothing waiting. Add some geotagged photos above.',
+      submitted: 'Nothing waiting for the map. Submitted reports appear here until '
+               + 'you write a map layer from them.',
+      mapped: 'Nothing on the map yet. Tick reports on the Submitted tab and write '
+            + 'a map layer.',
+      completed: 'Nothing completed yet. Reports land here once a later export '
+               + 'replaces the file they were in.'};
+    l.innerHTML = `<p class="muted">${empty[TAB]}</p>`;
+    drawMap(); return;
+  }
+  l.innerHTML = rows.map(r => TAB === 'todo' ? cardTodo(r, set) : cardDone(r, set)).join('');
+  drawMap();
+}
+
+function where(r){
+  return [r.street, r.locality, r.postcode].filter(Boolean).join(', ')
+         || `${(+r.lat).toFixed(5)}, ${(+r.lon).toFixed(5)}`;
+}
+
+// Every council form the tool can drive. Kept in step with nncr/routing.py and
+// selectors.json - a new form needs an entry in all three.
+const SERVICES = [
+  {id: 'fixmystreet',         label: 'Highways / FixMyStreet'},
+  {id: 'granicus',            label: 'Fly-tipping form'},
+  {id: 'granicus_bins',       label: 'Litter / dog bin form'},
+  {id: 'granicus_streetcare', label: 'Street care & cleaning form'},
+  {id: 'granicus_dog',        label: 'Dog issue form'},
+  {id: 'granicus_grounds',    label: 'Grass / trees / hedges form'},
+  {id: 'granicus_derelict',   label: 'Derelict property form'},
+  {id: 'granicus_vehicle',    label: 'Abandoned vehicle form'},
+  {id: 'granicus_env',        label: 'Environmental issue form'},
+];
+const SERVICE_LABEL = Object.fromEntries(SERVICES.map(s => [s.id, s.label]));
+
+// Categories the council routes to a dedicated form - mirror of routing.FORCED.
+const FORCED_UI = {
+  'Flytipping': 'granicus', 'Litter or dog waste bin': 'granicus_bins',
+  'Graffiti': 'granicus_streetcare', 'Flyposting': 'granicus_streetcare',
+  'Street Cleansing': 'granicus_streetcare', 'Dead animal': 'granicus_streetcare',
+  'Dog fouling': 'granicus_dog', 'Abandoned vehicles': 'granicus_vehicle',
+  'Open or derelict property': 'granicus_derelict',
+  'Grass, trees or hedges (grounds)': 'granicus_grounds',
+  'Accumulation or overgrown garden': 'granicus_env',
+  'Noise nuisance': 'granicus_env', 'Odour or drain nuisance': 'granicus_env',
+  'Smoke or bonfire': 'granicus_env', 'Light nuisance': 'granicus_env',
+  'Dust or vibration': 'granicus_env',
+};
+
+function forcedWarning(r){
+  const want = FORCED_UI[r.category];
+  if (!want || r.service === want) return '';
+  return `<span class="muted" style="color:var(--bad)">the council takes
+    ${esc((r.category || '').toLowerCase())} on the
+    ${esc(SERVICE_LABEL[want] || want)} — it will be moved there</span>`;
+}
+
+// The council form's own options, in its order, so what you tick here is exactly
+// what gets clicked over there. It has no graffiti option - that is "Other", with
+// the details in the description.
+const BIN_TYPES = ['Litter bin', 'Dog bin'];
+const BIN_ISSUES = ['Bin is damaged', 'Bin is missing', 'Requires emptying', 'Other'];
+
+function binIssues(r){
+  try {
+    const v = JSON.parse(r.bin_issues || '[]');
+    return Array.isArray(v) ? v.filter(Boolean) : (v ? [v] : []);
+  } catch (e) { return r.bin_issues ? [r.bin_issues] : []; }
+}
+
+// The bins form asks three things the other forms don't. They're worked out from
+// the photo, and shown here so you can correct them before the tab opens.
+function binRow(r){
+  if (r.service !== 'granicus_bins') return '';
+  const issues = binIssues(r);
+  const opts = (list, cur) => list.map(v =>
+    `<option value="${v}"${v === cur ? ' selected' : ''}>${v}</option>`).join('');
+  // Tick every problem you can see. The council form only takes one at a time,
+  // so two ticks offers Split - one report each, same photo and place.
+  const ticks = BIN_ISSUES.map(v =>
+    `<label class="muted" style="display:inline-flex;align-items:center;gap:4px;
+       margin-right:10px;cursor:pointer">
+      <input type="checkbox"${issues.includes(v) ? ' checked' : ''}
+        onchange="toggleIssue(${r.id}, '${esc(v)}', this.checked)"> ${esc(v)}</label>`)
+    .join('');
+  return `<div class="acts" style="margin-top:6px">
+    <select onchange="save(${r.id},{bin_type:this.value})" title="Bin type">
+      <option value=""${r.bin_type ? '' : ' selected'}>which bin?</option>
+      ${opts(BIN_TYPES, r.bin_type)}</select>
+    <select onchange="save(${r.id},{in_park:this.value})" title="Is it in a park?">
+      <option value="no"${r.in_park === 'yes' ? '' : ' selected'}>not in a park</option>
+      <option value="yes"${r.in_park === 'yes' ? ' selected' : ''}>in a park</option>
+    </select>
+    ${issues.length > 1 ? `<button onclick="splitReport(${r.id})"
+        title="The council form takes one problem at a time, so this makes one report each"
+        >Split into ${issues.length} reports</button>` : ''}
+  </div>
+  <div style="margin-top:6px">
+    <span class="muted" style="margin-right:8px"><b>Type of issue</b></span>${ticks}
+    ${issues.length > 1
+      ? `<span class="muted" style="color:var(--bad)">the form takes one at a time —
+         Split, or only “${esc(issues[0])}” gets reported</span>`
+      : ''}</div>`;
+}
+
+// Ticking a problem keeps the list in a fixed order, so the first one is the one
+// the form gets and the rest are what Split peels off.
+async function toggleIssue(id, name, on){
+  const r = REPORTS.find(x => x.id === id) || {};
+  const have = new Set(binIssues(r));
+  on ? have.add(name) : have.delete(name);
+  await save(id, {bin_issues: JSON.stringify(BIN_ISSUES.filter(v => have.has(v)))});
+}
+
+function photoOrPlaceholder(r){
+  if (!r.photo_path) return `<div class="nophoto">no photo<br>(manual report)</div>`;
+  return `<img src="/api/photo/${r.id}" onclick="window.open('/api/photo/${r.id}?full=1')" alt="">`;
+}
+
+// ---- manual reports: noise, smells, smoke and light have no photo to read ----
+let MANUAL = {lat: null, lon: null, street: '', locality: '', postcode: ''};
+let MANUAL_MARK = null;
+
+function openManual(){
+  $('#manualBox').style.display = 'block';
+  $('#m-cat').innerHTML = catOptions('');
+  $('#m-results').innerHTML = '';
+  $('#manualBox').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+function closeManual(){
+  $('#manualBox').style.display = 'none';
+  MANUAL = {lat: null, lon: null, street: '', locality: '', postcode: ''};
+  if (MANUAL_MARK){ MANUAL_MARK.remove(); MANUAL_MARK = null; }
+  $('#m-loc').textContent = 'No location set yet — search above, or click the map '
+    + 'on the right.';
+}
+
+function setManualLoc(lat, lon, hit){
+  MANUAL = {lat, lon, street: hit?.street || '', locality: hit?.locality || '',
+            postcode: hit?.postcode || ''};
+  const label = hit?.label
+    || [hit?.street, hit?.locality, hit?.postcode].filter(Boolean).join(', ')
+    || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  $('#m-loc').innerHTML = `Location: <b>${esc(label)}</b>`;
+  $('#m-results').innerHTML = '';
+  if (MAP){
+    if (MANUAL_MARK) MANUAL_MARK.remove();
+    MANUAL_MARK = L.circleMarker([lat, lon],
+      {radius: 9, color: '#a34a00', fillOpacity: .7}).addTo(MAP);
+    MAP.setView([lat, lon], Math.max(MAP.getZoom(), 16));
+  }
+}
+
+async function geoSearch(){
+  const q = $('#m-search').value.trim();
+  if (!q) return toast('Type an address or postcode first.');
+  $('#m-results').innerHTML = '<span class="muted">Searching…</span>';
+  const res = await fetch('/api/geocode?q=' + encodeURIComponent(q));
+  const d = await res.json();
+  if (!res.ok || d.error){
+    $('#m-results').innerHTML = '';
+    return toast('Address search failed: ' + (d.error || res.status));
+  }
+  if (!d.results.length){
+    $('#m-results').innerHTML = '<span class="muted">Nothing found — try adding '
+      + 'the town, or click the spot on the map instead.</span>';
+    return;
+  }
+  window._GEO = d.results;
+  $('#m-results').innerHTML = d.results.map((h, i) =>
+    `<button onclick="setManualLoc(${h.lat}, ${h.lon}, _GEO[${i}])">${esc(h.label)}</button>`
+  ).join('');
+}
+
+async function saveManual(){
+  const category = $('#m-cat').value;
+  if (!category) return toast('Pick a category first.');
+  if (MANUAL.lat == null) return toast('Set the location — search for the address, '
+    + 'or click the spot on the map.');
+  if (!$('#m-detail').value.trim()) return toast('Describe the issue — the council '
+    + 'form needs a description.');
+  const res = await fetch('/api/reports/manual', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({category, title: $('#m-title').value,
+      detail: $('#m-detail').value, lat: MANUAL.lat, lon: MANUAL.lon,
+      street: MANUAL.street, locality: MANUAL.locality,
+      postcode: MANUAL.postcode})});
+  const d = await res.json();
+  if (!res.ok) return toast('Could not add the report: ' + (d.detail || res.status));
+  $('#m-title').value = ''; $('#m-detail').value = ''; $('#m-search').value = '';
+  closeManual();
+  await load();
+  toast('Added report #' + d.added + '.'
+    + (d.warnings.length ? '\n⚠ ' + d.warnings.join('\n⚠ ') : ''));
+}
+
+function cardTodo(r, set){
+  const w3w = r.w3w ? ` · <b>///${esc(r.w3w)}</b>` : '';
+  const when = (r.taken_at || '').replace('T', ' ').slice(0, 16);
+  const conf = r.confidence ? ` · AI ${Math.round(r.confidence * 100)}%` : '';
+  const flags = [r.warnings, r.notes].filter(Boolean).join(' · ');
+  const tag = r.status === 'awaiting' ? '<span class="tag wait">waiting for your Submit</span>'
+            : r.status === 'ready' ? '<span class="tag">ready to submit</span>'
+            : `<span class="tag">${esc(r.status)}</span>`;
+  return `<div class="item" id="r${r.id}">
+    <input class="tick" type="checkbox" id="cb${r.id}" ${set.has(r.id) ? 'checked' : ''}
+      onchange="toggle(${r.id}, this.checked)">
+    <div>
+      ${photoOrPlaceholder(r)}
+      <div class="meta" style="margin-top:6px">#${r.id} ${tag}</div>
+    </div>
+    <div>
+      <div class="meta">${esc(where(r))}${w3w}<br>${esc(when)}${conf} ·
+        <a href="https://www.google.com/maps?q=${r.lat},${r.lon}" target="_blank">map</a></div>
+      ${flags ? `<div class="flags">⚠ ${esc(flags)}</div>` : ''}
+      <select onchange="save(${r.id},{category:this.value})">${catOptions(r.category)}</select>
+      <input type="text" style="margin-top:6px" placeholder="Summary of the problem"
+        value="${esc(r.title)}" onchange="save(${r.id},{title:this.value})">
+      <textarea style="margin-top:6px" placeholder="Explain what's wrong"
+        onchange="save(${r.id},{detail:this.value})">${esc(r.detail)}</textarea>
+      <div class="acts">
+        <button class="primary" ${BUSY ? 'disabled' : ''}
+          onclick="submitOne(${r.id})">Prefill &amp; submit…</button>
+        <select onchange="save(${r.id},{service:this.value})" title="Which council form">
+          ${SERVICES.map(s => `<option value="${s.id}"${r.service === s.id ? ' selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+        ${forcedWarning(r)}
+        <button onclick="save(${r.id},{status:'submitted'})"
+          title="I submitted this myself">Mark submitted</button>
+        <button onclick="del(${r.id})">Remove</button>
+      </div>
+      ${binRow(r)}
+    </div>
+  </div>`;
+}
+
+// ---- council updates: reconcile what the council has done with the cases ----
+let UPDATES = {};          // report id -> number of council updates on file
+let CHECKING = false;
+
+function updateButtons(n){
+  return `<button ${CHECKING ? 'disabled' : ''} onclick="checkUpdates()"
+      title="Read each highways case's public report page and record the council's
+current state and any new updates${n ? ' — just the ticked ones' : ''}">
+      ${CHECKING ? 'Checking…' : 'Check council updates' + (n ? ` (${n})` : '')}</button>
+    <button onclick="openEmailBox()"
+      title="Drop in council emails (.eml) or paste one — the reference is matched
+to its case and the update recorded. This is how Granicus case updates arrive.">
+      Add council email…</button>`;
+}
+
+async function checkUpdates(){
+  const ids = [...SEL[TAB]];
+  CHECKING = true; renderBulk();
+  toast('Checking the council\'s report pages — about a second a page…');
+  try {
+    const res = await fetch('/api/updates/check', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ids})});
+    if (!res.ok) return toast('Could not check: ' + res.status);
+    const d = await res.json();
+    REPORTS = d.reports; UPDATES = d.update_counts || {};
+    const bits = [`${d.checked} case${d.checked === 1 ? '' : 's'} checked`];
+    if (d.changed.length)
+      bits.push(...d.changed.map(c =>
+        `#${c.id}: ${c.state || 'no state shown'}`
+        + (c.new_updates ? ` — ${c.new_updates} new update${c.new_updates > 1 ? 's' : ''}` : '')));
+    else bits.push('no changes since last check');
+    if (d.failed.length) bits.push(`⚠ could not read ${d.failed.length} page(s)`);
+    toast(bits.join('\n'), 9000);
+  } finally {
+    CHECKING = false;
+    prune(); render();
+  }
+}
+
+function openEmailBox(){ $('#emailBox').style.display = 'block';
+  $('#emailBox').scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
+function closeEmailBox(){ $('#emailBox').style.display = 'none';
+  $('#emlInput').value = ''; $('#emlText').value = ''; }
+
+async function sendEmails(){
+  const fd = new FormData();
+  for (const f of $('#emlInput').files) fd.append('files', f);
+  fd.append('text', $('#emlText').value);
+  if (!$('#emlInput').files.length && !$('#emlText').value.trim())
+    return toast('Choose saved .eml files, or paste the email text.');
+  const res = await fetch('/api/updates/email', {method: 'POST', body: fd});
+  const d = await res.json();
+  if (!res.ok) return toast('Could not reconcile: ' + (d.detail || res.status));
+  REPORTS = d.reports; UPDATES = d.update_counts || {};
+  toast(d.results.map(r => r.matched
+    ? `${r.name}: matched case #${r.matched} (${r.how})`
+      + (r.state ? ` — council say ${r.state}` : '')
+      + (r.duplicate ? ' (already on file)' : '')
+    : `${r.name}: ⚠ not matched — ${r.note}`).join('\n'), 10000);
+  closeEmailBox();
+  prune(); render();
+}
+
+async function toggleUpdates(id){
+  const box = document.getElementById('upd' + id);
+  if (!box) return;
+  if (box.style.display !== 'none'){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  if (!box.dataset.loaded){
+    const d = await (await fetch('/api/reports/' + id + '/updates')).json();
+    box.dataset.loaded = '1';
+    box.innerHTML = d.updates.length ? d.updates.map(u =>
+      `<div style="margin:4px 0"><b>${esc(u.happened || u.recorded_at || '')}</b>
+        <span class="muted">(${u.source === 'page' ? 'report page' : 'email'})</span>
+        ${u.state ? `<span class="tag">${esc(u.state)}</span>` : ''}<br>
+        ${esc(u.body || '')}</div>`).join('')
+      : '<span class="muted">No council updates on file for this case yet.</span>';
+  }
+}
+
+// How the council's own status is shown on a case.
+function councilTag(r){
+  const s = (r.council_status || '').trim();
+  if (!s) return '';
+  const cls = /fixed|completed/.test(s) ? 'ok'
+            : /closed|no further|unable|not responsible|duplicate/.test(s) ? 'err'
+            : 'wait';
+  return `<span class="tag ${cls}" title="What the council's own record says
+(checked ${esc((r.council_checked_at || '').replace('T', ' ').slice(0, 16))})">council: ${esc(s)}</span>`;
+}
+
+const STAGE = {submitted: ['submitted', 'ok'], mapped: ['on the map', 'wait'],
+               completed: ['completed', 'ok']};
+
+function cardDone(r, set){
+  const when = (r.mapped_at || r.submitted_at || r.taken_at || '')
+                 .replace('T', ' ').slice(0, 16);
+  const ref = r.reference
+    ? (r.report_url ? `<a href="${esc(r.report_url)}" target="_blank">ref ${esc(r.reference)}</a>`
+                    : 'ref ' + esc(r.reference))
+    : `<input type="text" placeholder="paste the reference…" value=""
+         style="width:190px;padding:2px 6px;border:1px solid var(--line);
+                border-radius:5px;font:inherit;font-size:12.5px"
+         onchange="save(${r.id},{reference:this.value.trim()})">`;
+  const [label, cls] = STAGE[r.status] || [r.status, ''];
+  const pic = r.photo_url
+    ? ' · <span title="shows on the map automatically">photo published</span>'
+    : ' · <span title="attach the copied file to this pin by hand"'
+      + ' style="color:var(--warn)">photo not published</span>';
+  return `<div class="done">
+    <input class="tick" type="checkbox" id="cb${r.id}" ${set.has(r.id) ? 'checked' : ''}
+      onchange="toggle(${r.id}, this.checked)" style="margin:0">
+    ${photoOrPlaceholder(r)}
+    <div>
+      <div class="t">${esc(r.title || r.category || 'Report')}</div>
+      <div class="s">#${r.id} · ${esc(r.category || '')} · ${esc(where(r))}
+        ${r.w3w ? '· ///' + esc(r.w3w) : ''}</div>
+      <div class="s">${esc(when)} · ${ref}${pic}</div>
+    </div>
+    <div style="text-align:right">
+      <span class="tag ${cls}">${esc(label)}</span> ${councilTag(r)}<br>
+      <button style="margin-top:6px;font-size:13px;padding:4px 9px"
+        onclick="toggleUpdates(${r.id})">Updates (${UPDATES[r.id] || 0})</button>
+      <button style="margin-top:6px;font-size:13px;padding:4px 9px"
+        onclick="del(${r.id})">Remove</button>
+    </div>
+  </div>
+  <div id="upd${r.id}" class="card" data-loaded=""
+    style="display:none;margin:-4px 0 9px;font-size:13px;padding:10px 14px"></div>`;
+}
+
+function drawMap(){
+  const pts = shown().filter(r => r.lat != null);
+  if (!MAP){
+    MAP = L.map('map').setView([CENTRE.lat, CENTRE.lon], CENTRE.zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(MAP);
+    MARKERS = L.layerGroup().addTo(MAP);
+    // With the manual-report box open, a click on the map IS the location.
+    MAP.on('click', e => {
+      if ($('#manualBox').style.display !== 'none')
+        setManualLoc(e.latlng.lat, e.latlng.lng, null);
+    });
+  }
+  MARKERS.clearLayers();
+  pts.forEach(r => L.circleMarker([r.lat, r.lon], {
+      radius: 7, color: isDone(r) ? '#1b6e2f' : '#b3261e', fillOpacity: .8
+    }).bindPopup(`<b>#${r.id}</b> ${esc(r.category || 'uncategorised')}<br>${esc(r.title || '')}`)
+     .addTo(MARKERS));
+  if (pts.length) MAP.fitBounds(pts.map(r => [r.lat, r.lon]), {padding: [30, 30], maxZoom: 15});
+}
+
+function recentre(){ if (MAP) MAP.setView([CENTRE.lat, CENTRE.lon], CENTRE.zoom); }
+
+// ---- summary of submitted reports: reference, street, quick description ----
+function summaryLines(rows){
+  return rows.map(r => {
+    const ref = (r.reference || '').trim() || 'no reference';
+    const where = [r.street, r.locality].filter(Boolean).join(', ')
+                  || r.postcode
+                  || (r.lat != null ? `${(+r.lat).toFixed(5)}, ${(+r.lon).toFixed(5)}` : '');
+    const what = (r.title || r.category || 'Report').trim().replace(/\s+/g, ' ');
+    return [ref, where, what].filter(Boolean).join(' — ');
+  });
+}
+
+function summarySelected(){
+  const set = SEL[TAB];
+  const rows = shown().filter(r => set.has(r.id));
+  if (!rows.length) return toast('Tick the reports you want listed.');
+  const text = summaryLines(rows).join('\n');
+  $('#summaryBox').style.display = 'block';
+  $('#summaryText').value = text;
+  $('#summaryCount').textContent =
+    `${rows.length} report${rows.length > 1 ? 's' : ''}`;
+  $('#summaryText').focus();
+  $('#summaryText').select();
+}
+
+async function copySummary(){
+  const box = $('#summaryText');
+  box.select();
+  try {
+    await navigator.clipboard.writeText(box.value);
+    toast('Copied to the clipboard.');
+  } catch (e) {
+    document.execCommand('copy');          // older browsers, or no permission
+    toast('Copied (or press Ctrl+C — the text is selected).');
+  }
+}
+
+function closeSummary(){ $('#summaryBox').style.display = 'none'; }
+
+async function save(id, changes){
+  const r = await fetch('/api/reports/' + id, {method: 'PATCH',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(changes)});
+  if (!r.ok){ toast('Could not save: ' + (await r.text())); return; }
+  const upd = await r.json();
+  REPORTS = REPORTS.map(x => x.id === id ? upd : x);
+  prune(); render();
+}
+
+// The whole session log, for pasting into a message when a form misbehaves.
+async function copyLog(btn){
+  const text = $('#log').textContent || '';
+  if (!text.trim()) return toast('Nothing in the log yet.');
+  let done = false;
+  try { await navigator.clipboard.writeText(text); done = true; } catch (e) {}
+  if (!done){                       // older browsers, or clipboard permission off
+    const box = document.createElement('textarea');
+    box.value = text;
+    box.style.position = 'fixed';
+    box.style.opacity = '0';
+    document.body.appendChild(box);
+    box.select();
+    try { done = document.execCommand('copy'); } catch (e) {}
+    box.remove();
+  }
+  if (!done) return toast('Could not reach the clipboard — select the log and copy it.');
+  const was = btn.textContent;
+  btn.textContent = 'Copied';
+  setTimeout(() => { btn.textContent = was; }, 1500);
+}
+
+async function splitReport(id){
+  const res = await fetch('/api/reports/' + id + '/split', {method: 'POST'});
+  if (!res.ok){ toast('Could not split: ' + (await res.text())); return; }
+  const d = await res.json();
+  await load();
+  toast('Split into #' + id + ' and #' + d.split_into.join(', #')
+        + ' — one report per problem.');
+}
+
+async function del(id){
+  if (!confirm('Remove report #' + id + '?')) return;
+  await fetch('/api/reports/' + id, {method: 'DELETE'});
+  REPORTS = REPORTS.filter(r => r.id !== id);
+  prune(); render();
+}
+
+async function removeAll(){
+  const pending = todoList().length;
+  const submitted = REPORTS.length - pending;
+  if (!REPORTS.length) return toast('Nothing to remove.');
+  let includeSubmitted = false;
+  if (pending){
+    if (!confirm(`Remove ${pending} unsubmitted report${pending > 1 ? 's' : ''}?`
+        + (submitted ? `\n\nYour ${submitted} submitted report${submitted > 1 ? 's' : ''} will be kept.` : '')))
+      return;
+    if (submitted)
+      includeSubmitted = confirm(`Also wipe the ${submitted} submitted `
+        + `report${submitted > 1 ? 's' : ''} from history?\n\nOK = delete everything.\n`
+        + `Cancel = keep the history (recommended - it warns you about re-reporting `
+        + `the same spot, and it feeds the map layer).`);
+  } else {
+    if (!confirm(`Wipe the ${submitted} submitted report${submitted > 1 ? 's' : ''} `
+        + `from history? You lose the duplicate warnings and the map pins.`)) return;
+    includeSubmitted = true;
+  }
+  const d = await (await fetch('/api/reports?include_submitted=' + includeSubmitted,
+                               {method: 'DELETE'})).json();
+  await load();
+  toast(`Removed ${d.removed} report(s) and ${d.files_deleted} stored photo file(s).`);
+}
+
+async function submitOne(id){ await startRun('/api/reports/' + id + '/submit', null, 1); }
+
+async function submitSelected(){
+  const ids = [...SEL.todo];
+  const noCat = REPORTS.filter(r => ids.includes(r.id) && !r.category);
+  if (noCat.length) return toast('Pick a category first for #'
+      + noCat.map(r => r.id).join(', #'));
+  if (ids.length > 6 && !confirm(`This opens ${ids.length} browser tabs at once, all `
+      + `waiting for you to press Submit. Carry on?`)) return;
+  await startRun('/api/submit', {ids}, ids.length);
+}
+
+async function startRun(url, body, n){
+  const res = await fetch(url, {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined});
+  if (!res.ok){ toast('Cannot start: ' + (await res.text())); return; }
+  $('#log').textContent = `Opening browser for ${n} report(s)…`;
+  BUSY = true; stats(); renderBulk();
+  clearInterval(POLL);
+  POLL = setInterval(pollLog, 1500);
+}
+
+async function pollLog(){
+  const d = await (await fetch('/api/log')).json();
+  $('#log').textContent = `[${d.log.state}]\n` + (d.log.lines || []).join('\n');
+  $('#log').scrollTop = 1e6;
+  REPORTS = d.reports; BUSY = d.busy;
+  prune(); render();
+  if (!d.busy){
+    clearInterval(POLL); POLL = null;
+    const done = (d.log.lines || []).filter(l => l.includes('confirmed submitted')).length;
+    if (done) toast(`${done} report(s) confirmed submitted.`);
+  }
+}
+
+async function exportSelected(){
+  const ids = [...SEL[TAB]];
+  if (!ids.length) return toast('Tick the reports you want on the map.');
+  const mapped = listFor('mapped').filter(r => !ids.includes(r.id));
+  if (mapped.length && !confirm(
+      `This replaces NNC_Reports.kml with ${ids.length} pin(s).\n\n`
+      + `${mapped.length} report(s) currently "on the map" will move to Completed — `
+      + `import the current file into My Maps first if you haven't yet.`)) return;
+  const d = await (await fetch('/api/export', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})})).json();
+  const noUrl = d.pins - (d.photos_with_public_url || 0);
+  const moved = (d.moved_to_completed || []).length;
+  await load();
+  setTab('mapped');
+  toast(`Wrote ${d.pins} pin(s):\n${d.kml}\n${d.csv}\n`
+    + `${d.photos_copied} photo(s) copied to ${d.photo_folder}\n\n`
+    + `${d.photos_with_public_url || 0} pin(s) show their photo automatically.`
+    + (noUrl > 0 ? `\n${noUrl} have no published photo URL — attach the copied file `
+                 + `to those pins by hand if you want an image.` : '')
+    + (moved ? `\n\n${moved} earlier report(s) moved to Completed.` : '')
+    + `\n\nNow Add layer → Import in My Maps.`, 18000);
+}
+
+async function importMyMap(){
+  toast('Fetching the Google My Map…', 4000);
+  const res = await fetch('/api/pins/import', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: '{}'});
+  const d = await res.json();
+  if (!res.ok) return toast('Could not merge the My Map: ' + (d.detail || res.status), 9000);
+  toast(`My Map merged: ${d.placemarks} placemarks → ${d.matched} already in the tool, `
+    + `${d.pins_added} new pin${d.pins_added === 1 ? '' : 's'}, ${d.pins_updated} updated, `
+    + `${d.areas} drawn area${d.areas === 1 ? '' : 's'}.`
+    + (d.duplicate_references && d.duplicate_references.length
+        ? `\nSame reference on more than one pin (both kept): ${d.duplicate_references.join(', ')}` : '')
+    + (d.photos_to_cache ? `\n${d.photos_to_cache} photo(s) caching in the background.` : '')
+    + '\n\nOpen the interactive map to see them.', 12000);
+}
+
+async function exportWebmaps(){
+  const res = await fetch('/api/webmap/export', {method: 'POST'});
+  if (!res.ok) return toast('Could not write the maps: ' + res.status);
+  const d = await res.json();
+  const lines = d.written.map(w =>
+    `${w.profile}: ${w.pins} pin${w.pins === 1 ? '' : 's'} → ${w.file}`);
+  if (d.empty.length)
+    lines.push(`(no reports yet: ${d.empty.map(e => e.profile).join(', ')})`);
+  if (d.token_problem) lines.push('⚠ ' + d.token_problem);
+  toast('Interactive maps written.\n' + lines.join('\n'), 9000);
+}
+
+async function refreshCats(){
+  const d = await (await fetch('/api/categories/refresh', {method: 'POST'})).json();
+  toast(d.ok ? `Loaded ${d.count} live categories from the council site.`
+             : 'Could not refresh: ' + d.error);
+  if (d.ok) load();
+}
+
+const fileInput = $('#fileInput');
+fileInput.onchange = () => upload(fileInput.files);
+const drop = $('#drop');
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => upload(ev.dataTransfer.files));
+
+async function upload(files){
+  if (!files || !files.length) return;
+  drop.textContent = `Reading ${files.length} photo(s): GPS, What3Words, category, `
+                   + `and shrinking each one for the council forms…`;
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  try{
+    const d = await (await fetch('/api/upload', {method: 'POST', body: fd})).json();
+    REPORTS = d.reports;
+    const added = d.results.filter(r => r.added);
+    added.forEach(r => SEL.todo.add(r.added));       // new ones start ticked
+    setTab('todo');
+    const skipped = d.results.filter(r => r.skipped);
+    let msg = `Added ${added.length} report(s), ticked ready for submitting.`;
+
+    // Photos are shrunk on the way in, so submitting later is quick.
+    const shrunk = added.map(r => r.shrunk || {}).filter(s => s.after);
+    if (shrunk.length){
+      const mb = xs => (xs.reduce((a, b) => a + b, 0) / 1024 / 1024).toFixed(1);
+      msg += `\n\n${shrunk.length} photo(s) shrunk for the council forms: `
+           + `${mb(shrunk.map(s => s.before))}MB → ${mb(shrunk.map(s => s.after))}MB. `
+           + `Your originals are kept.`;
+    }
+    if (skipped.length) msg += '\n\nSkipped:\n' + skipped
+      .map(s => `• ${s.skipped}: ${s.reason}`).join('\n');
+    toast(msg, 12000);
+  } catch(e){ toast('Upload failed: ' + e); }
+  drop.textContent = 'Drop photos here (JPEG / HEIC / PNG) — GPS is read from each file';
+  fileInput.value = '';
+}
+
+load();
+setInterval(() => { if (!POLL) fetch('/api/log').then(r => r.json()).then(d => {
+  if (d.busy !== BUSY){ BUSY = d.busy; stats(); renderBulk(); }
+}).catch(() => {}); }, 5000);
+</script>
+</body>
+</html>

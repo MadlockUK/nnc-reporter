@@ -1,0 +1,64 @@
+{
+  "reporter": {
+    "full_name": "Your Name",
+    "first_name": "",
+    "last_name": "",
+    "email": "you@example.com",
+    "phone": "",
+    "show_name_publicly": false,
+    "address_postcode": "",
+    "address_line": "",
+    "_comment": "first_name/last_name are split from full_name if left blank. The fly-tipping form asks for YOUR home address: put your postcode in address_postcode, and enough of the first line in address_line (e.g. '12 Example Road') for the tool to pick it from the results."
+  },
+  "keys": {
+    "what3words": "PUT_YOUR_W3W_KEY_HERE",
+    "anthropic": "PUT_YOUR_ANTHROPIC_KEY_HERE",
+    "mapbox": "",
+    "_comment_mapbox": "A Mapbox PUBLIC token (starts pk.) for the interactive web maps. Never a secret sk. token - it ends up inside the exported HTML files. Make it at account.mapbox.com/access-tokens with only the styles:read, styles:tiles and fonts:read scopes, and add a URL restriction if you host the maps anywhere."
+  },
+  "highways_login": {
+    "email": "you@example.com",
+    "password": "PUT_YOUR_HIGHWAYS_PASSWORD_HERE",
+    "enabled": true,
+    "_comment": "Signs you in to highways.northnorthants.gov.uk so reports attach to your account. Run move-keys-out.bat to move this password out of a synced folder."
+  },
+  "classify": {
+    "enabled": true,
+    "model": "claude-sonnet-5"
+  },
+  "routing": {
+    "_comment": "Fly-tipping always goes to forms.northnorthants.gov.uk/service/Report_fly_tipping. This is not a setting: the highways site lists a Flytipping category but refuses the report, showing a notice pointing at that form instead. See nncr/routing.py."
+  },
+  "submission": {
+    "mode": "confirm",
+    "_comment": "confirm = prefill everything and stop at the final Submit button for you to click. Never fully automatic.",
+    "wait_for_submit_seconds": 900
+  },
+  "export": {
+    "map_folder": "..",
+    "kml_filename": "NNC_Reports.kml",
+    "csv_filename": "NNC_Reports.csv",
+    "photo_folder": "NNC_Reports_photos"
+  },
+  "geocode": {
+    "nominatim_email": "you@example.com"
+  },
+  "map": {
+    "centre_lat": 52.4914,
+    "centre_lon": -0.6923,
+    "zoom": 13,
+    "_comment": "Corby town centre. Only used before any pins are on the map - once you have reports the view fits around them."
+  },
+  "server": {
+    "port": 8712,
+    "open_browser": true
+  },
+  "mymap": {
+    "mid": "",
+    "_comment": "Optional. The id of your Google My Map (the mid= part of its link). Leave blank to hide the My Map buttons."
+  },
+  "bins": {
+    "park_radius_metres": 5,
+    "_comment": "How close a park has to be for the bins form's 'is it in a park?' question to be answered yes. A bin on the pavement outside a park is not in it."
+  }
+}

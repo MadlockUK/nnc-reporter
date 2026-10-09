@@ -1,0 +1,1502 @@
+{
+  "_comment": "The council form is matched mostly on visible label text, because its map sidebar overlays the controls and its element ids change between releases. 'labels' entries are lowercase substrings matched against a field's label, placeholder, name and id. Run run-inspect.bat to dump the live form's real fields and labels.",
+  "fixmystreet": {
+    "url": "https://highways.northnorthants.gov.uk/report/new?latitude={lat}&longitude={lon}",
+    "auth_url": "https://highways.northnorthants.gov.uk/auth",
+    "signin_email": [
+      "input#username",
+      "input[name='username']",
+      "input[type='email']"
+    ],
+    "signin_password": [
+      "input#password_sign_in",
+      "input[name='password_sign_in']",
+      "input[type='password']"
+    ],
+    "signin_button_text": [
+      "sign in",
+      "sign in with password",
+      "log in"
+    ],
+    "cookie_accept_text": [
+      "accept all cookies",
+      "accept additional cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "continue",
+      "next"
+    ],
+    "continue_avoid_text": [
+      "report a new problem"
+    ],
+    "step_wait_seconds": 12,
+    "max_steps": 14,
+    "report_new_problem_text": [
+      "continue \u2013 report a new problem",
+      "continue - report a new problem",
+      "report a new problem"
+    ],
+    "title": [
+      "input#form_title",
+      "input[name='title']"
+    ],
+    "detail": [
+      "textarea#form_detail",
+      "textarea[name='detail']"
+    ],
+    "name": [
+      "input#form_name",
+      "input[name='name']"
+    ],
+    "email": [
+      "input#form_username_register",
+      "input#form_username",
+      "input#form_email",
+      "input[name='username']"
+    ],
+    "phone": [
+      "input#form_phone",
+      "input[name='phone']"
+    ],
+    "labels": {
+      "title": [
+        "summarise the problem",
+        "summarise",
+        "summary",
+        "title"
+      ],
+      "detail": [
+        "explain what",
+        "what's wrong",
+        "whats wrong",
+        "detail",
+        "description"
+      ],
+      "name": [
+        "full name",
+        "your name"
+      ],
+      "email": [
+        "your email",
+        "email address",
+        "email"
+      ],
+      "phone": [
+        "phone number",
+        "telephone",
+        "phone"
+      ],
+      "may_show_name": [
+        "show my name publicly",
+        "show my name"
+      ]
+    },
+    "_assets": "Trees, street lights and bins are shown as pins on the map and must be picked before the form will accept the report. The tool clicks the one nearest the photo's GPS, but only if it is within asset_max_metres.",
+    "asset_prompt_text": [
+      "you must pick",
+      "you must select",
+      "please select a",
+      "select a tree",
+      "select an asset",
+      "click on the map to select",
+      "pick a tree",
+      "select the tree",
+      "choose a tree"
+    ],
+    "asset_chosen_text": [
+      "you have selected",
+      "you have chosen",
+      "selected tree",
+      "asset selected"
+    ],
+    "asset_max_metres": 60,
+    "asset_layer_pattern": "",
+    "_roads": "A pothole photographed from the pavement puts the pin off the carriageway and the site rejects it. When it complains, the pin is moved to the closest point on the nearest road line, up to road_max_metres.",
+    "off_highway_text": [
+      "not under the responsibility of",
+      "unable to accept reports in this area",
+      "unable to accept reports",
+      "not on nnc control",
+      "not in nnc control",
+      "not a road we maintain",
+      "not maintained by",
+      "not covered by this service",
+      "outside the area",
+      "not in an area we cover",
+      "not on a road",
+      "please move the pin",
+      "we are not responsible for this",
+      "not part of the highway"
+    ],
+    "road_layer_pattern": "road|highway|carriageway|street|adopted|network|usrn",
+    "road_max_metres": 30,
+    "road_max_tries": 2,
+    "dead_end_text": [
+      "please use our online form",
+      "use our online form",
+      "report it using our online form",
+      "do not log it on this system"
+    ],
+    "success_text": [
+      "check your email",
+      "your report has been",
+      "your issue is on its way",
+      "thank you for reporting",
+      "reported to the council",
+      "nearly done"
+    ]
+  },
+  "granicus_bins": {
+    "_comment": "Public litter and dog waste bins. Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs.",
+    "url": "https://forms.northnorthants.gov.uk/service/Report_an_issue_with_a_public_litter_or_dog_waste_bin",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "max_chars": 400,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "litter",
+      "bin"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is wrong",
+        "what is the issue",
+        "problem with the bin",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts",
+        "bin location"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "type of bin",
+        "bin type",
+        "type of issue",
+        "issue",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ],
+      "park_question": [
+        "is the location of the issue in a park",
+        "in a park",
+        "park or open space",
+        "park"
+      ],
+      "bin_type": [
+        "bin type",
+        "type of bin",
+        "what type of bin",
+        "kind of bin",
+        "which bin"
+      ],
+      "bin_issue": [
+        "type of issue",
+        "what is the issue with the bin",
+        "issue with the bin",
+        "what is wrong with the bin",
+        "what is wrong",
+        "what is the issue",
+        "nature of the issue",
+        "issue",
+        "problem"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "bin"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "bins",
+    "name": "public litter / dog waste bin form",
+    "photo_upload_seconds": 90
+  },
+  "granicus_flytipping": {
+    "_comment": "Five tabs: Introduction, Your details, Nearest street, Photo, Fly-tipping. Each tab is recognised by the fields on it, not by tab position, so an extra step would not derail it.",
+    "url": "https://forms.northnorthants.gov.uk/service/Report_fly_tipping",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "report fly-tipping"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "waste",
+        "what has been",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "type of fly-tipping",
+        "type of flytipping",
+        "type of waste",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "flytipping",
+    "name": "fly-tipping form",
+    "photo_upload_seconds": 90
+  },
+  "granicus_streetcare": {
+    "_comment": "Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs. Run run-inspect.bat against the URL below to dump the live fields if the council changes the form.",
+    "url": "https://forms.northnorthants.gov.uk/service/Report_a_street_care_and_cleaning_issue",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "street care",
+      "cleaning",
+      "cleansing"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is the issue",
+        "what is wrong",
+        "tell us about",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "what would you like to report",
+        "type of issue",
+        "type of problem",
+        "issue type",
+        "what is the issue",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste",
+        "litter",
+        "cleaning",
+        "graffiti"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "streetcare",
+    "name": "street care & cleaning form"
+  },
+  "granicus_dog": {
+    "_comment": "Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs. Run run-inspect.bat against the URL below to dump the live fields if the council changes the form.",
+    "url": "https://forms.northnorthants.gov.uk/service/Report_a_dog_issue",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "dog"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is the issue",
+        "what is wrong",
+        "tell us about",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "what would you like to report",
+        "type of issue",
+        "what is the issue",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ],
+      "dog_description": [
+        "description of the dog",
+        "describe the dog"
+      ],
+      "when_happens": [
+        "when does",
+        "dates and times",
+        "what time",
+        "how often",
+        "frequency"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste",
+        "dog",
+        "fouling"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "dog",
+    "name": "dog issue form",
+    "human_fields_note": [
+      "the dog form may ask for dates, times and a description of the dog or its owner - only you can give those, so check this tab carefully"
+    ]
+  },
+  "granicus_grounds": {
+    "_comment": "Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs. Run run-inspect.bat against the URL below to dump the live fields if the council changes the form.",
+    "url": "https://forms.northnorthants.gov.uk/service/Report_issues_with_grass_cutting__trees_or_hedges",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "grass",
+      "tree",
+      "hedge"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is the issue",
+        "what is wrong",
+        "tell us about",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "what would you like to report",
+        "type of issue",
+        "issue type",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste",
+        "grass",
+        "tree",
+        "hedge"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "grounds",
+    "name": "grass/trees/hedges form",
+    "human_fields_note": [
+      "this form covers the Corby, Kettering and Wellingborough areas only - East Northants grass/tree/hedge issues go to the town or parish council"
+    ]
+  },
+  "granicus_derelict": {
+    "_comment": "Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs. Run run-inspect.bat against the URL below to dump the live fields if the council changes the form.",
+    "url": "https://forms.northnorthants.gov.uk/service/Report_an_open_or_derelict_property",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "property",
+      "derelict"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is the issue",
+        "what is wrong",
+        "tell us about",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "type of issue",
+        "what is the issue",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ],
+      "property_address": [
+        "address of the property",
+        "property address",
+        "location of the property"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste",
+        "property",
+        "building"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "derelict",
+    "name": "open/derelict property form"
+  },
+  "granicus_vehicle": {
+    "_comment": "Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs. Run run-inspect.bat against the URL below to dump the live fields if the council changes the form.",
+    "url": "https://forms.northnorthants.gov.uk/service/Abandoned_vehicle_report",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "vehicle",
+      "abandoned"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is the issue",
+        "what is wrong",
+        "tell us about",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "type of issue",
+        "what is the issue",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ],
+      "vehicle_make": [
+        "make of the vehicle",
+        "vehicle make",
+        "make"
+      ],
+      "vehicle_model": [
+        "model of the vehicle",
+        "vehicle model",
+        "model"
+      ],
+      "vehicle_colour": [
+        "colour of the vehicle",
+        "vehicle colour",
+        "colour",
+        "color"
+      ],
+      "how_long": [
+        "how long has the vehicle",
+        "how long"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste",
+        "vehicle",
+        "car"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "vehicle",
+    "name": "abandoned vehicle form",
+    "human_fields_note": [
+      "make, model, colour and registration are read off the vehicle itself - fill them in yourself; the tool deliberately never records number plates"
+    ]
+  },
+  "granicus_env": {
+    "_comment": "Same Granicus platform as the fly-tipping form, so the same step-by-step walker drives it; only the wording differs. Run run-inspect.bat against the URL below to dump the live fields if the council changes the form.",
+    "url": "https://forms.northnorthants.gov.uk/service/Tell_us_about_an_environmental_issue",
+    "cookie_accept_text": [
+      "close",
+      "accept all cookies",
+      "accept"
+    ],
+    "continue_text": [
+      "next",
+      "continue",
+      "start"
+    ],
+    "agree_text": [
+      "i agree"
+    ],
+    "yes_text": [
+      "yes"
+    ],
+    "no_text": [
+      "no"
+    ],
+    "search_text": [
+      "search"
+    ],
+    "max_pages": 12,
+    "ready_text": [
+      "do you agree",
+      "data protection agreement",
+      "environmental"
+    ],
+    "ready_seconds": 25,
+    "results_seconds": 20,
+    "max_chars": 400,
+    "labels": {
+      "first_name": [
+        "first name",
+        "forename"
+      ],
+      "last_name": [
+        "last name",
+        "surname",
+        "family name"
+      ],
+      "phone": [
+        "telephone number",
+        "telephone",
+        "phone",
+        "mobile"
+      ],
+      "email": [
+        "email address",
+        "email"
+      ],
+      "your_address_search": [
+        "address search"
+      ],
+      "address_select": [
+        "address"
+      ],
+      "street_search": [
+        "street search",
+        "nearest street",
+        "street",
+        "road"
+      ],
+      "street_select": [
+        "select address",
+        "address",
+        "street"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details of",
+        "detail",
+        "what is the issue",
+        "what is wrong",
+        "tell us about",
+        "comments",
+        "additional information"
+      ],
+      "location_notes": [
+        "where",
+        "location",
+        "whereabouts"
+      ],
+      "w3w": [
+        "what3words location",
+        "what3words",
+        "what 3 words"
+      ],
+      "further_location": [
+        "further information regarding the location",
+        "any further information",
+        "further information"
+      ],
+      "type_select": [
+        "what is the issue",
+        "type of issue",
+        "what would you like to report",
+        "nature of the issue",
+        "issue type",
+        "type"
+      ],
+      "other_details": [
+        "please provide details",
+        "please provide other details",
+        "other details",
+        "if other",
+        "please specify",
+        "provide details"
+      ],
+      "comments": [
+        "comments",
+        "comment"
+      ],
+      "issue_address": [
+        "address you are complaining about",
+        "address of the problem",
+        "address of the issue",
+        "where is the issue happening"
+      ]
+    },
+    "field_hints": {
+      "location": [
+        "address",
+        "location",
+        "where",
+        "street",
+        "postcode"
+      ],
+      "description": [
+        "describe",
+        "description",
+        "details",
+        "detail",
+        "waste",
+        "issue",
+        "nuisance"
+      ],
+      "email": [
+        "email"
+      ],
+      "name": [
+        "name"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile"
+      ]
+    },
+    "success_text": [
+      "thank you for submitting your form",
+      "your reference number is",
+      "thank you",
+      "we have received",
+      "your report has been",
+      "submitted successfully",
+      "what happens next"
+    ],
+    "step_wait_seconds": 12,
+    "form": "env",
+    "name": "environmental issue form",
+    "human_fields_note": [
+      "these are legal nuisance complaints and cannot be made anonymously - check your own details are right, and add the dates and times the nuisance happens to the description before you submit"
+    ]
+  }
+}

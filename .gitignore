@@ -1,0 +1,39 @@
+﻿# Runtime data (a junction to OneDrive on the author's machine) - no trailing slash
+/data
+
+# Config, secrets and backups
+config.json
+config*.bak*
+keys.json
+
+# Databases, caches, backups
+*.db
+*.db-*
+*.bak*
+geo_cache.json
+categories.json
+form-inspect.txt
+
+# Exports
+NNC_Reports*
+*.kml
+
+# Photos (the app's own static assets are allowed)
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.heif
+*.webp
+!nncr/static/**
+
+# Python / environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.log
+
+# Browser profile and scratch
+browser-profile/
+_to_delete/

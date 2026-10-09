@@ -1,0 +1,11 @@
+# Minimum versions rather than exact pins, so pip can pick wheels that match
+# whichever Python 3.10+ you installed.
+fastapi>=0.115
+uvicorn>=0.34
+python-multipart>=0.0.20
+Pillow>=11.0
+pillow-heif>=0.21
+requests>=2.32
+playwright>=1.49
+anthropic>=0.42
+piexif>=1.1.3
