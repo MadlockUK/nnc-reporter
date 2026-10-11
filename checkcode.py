@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 BASE = Path(__file__).parent
-TARGETS = sorted(BASE.glob("nncr/*.py")) + [
+TARGETS = sorted(BASE.glob("nncr/*.py")) + sorted(BASE.glob("nncr/web/*.py")) + [
     BASE / n for n in ("app.py", "selfcheck.py", "checkkeys.py", "movekeys.py")]
 
 

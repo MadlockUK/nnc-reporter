@@ -1,73 +1,258 @@
 # NNC Reporter
 
-Drop in geotagged photos → it reads the GPS, works out the street and What3Words
-address, suggests the right council category, drafts the wording, prefills the
-council's own form for you to check and submit, and writes a KML layer of pins for
-your Google My Map.
+A web app for a group of invited people to report street issues to North
+Northamptonshire Council. Drop in geotagged photos and it reads the GPS, works out the
+street and What3Words address, suggests the right council category and drafts the
+wording. It fills in the council's own form on the server, and you check it and approve
+each submission. Everything the group sends goes onto a shared map and summary, by ward,
+town council and town council ward.
 
-## Setting up from a fresh clone
+- **Invite-only sign-in.** There is no sign-up. Strong passwords, two-factor sign-in,
+  lockout after repeated failures, and password reset by email.
+- **Your own reports stay yours.** Each person has their own reports, photos and
+  council sign-in. What they *submit* joins the group's shared layer.
+- **Submitting happens in the web app.** The server's browser fills each form to its
+  Submit button and shows you the form. Nothing is sent until you press
+  **Submit to council** for that report.
+- **Every boundary that matters:** the council itself, its 31 unitary wards, the town
+  councils, and the town councils' own wards where they differ from the unitary wards.
+
+Design notes and the security model are in
+[`docs/NNC-Reporter-Web-App.md`](docs/NNC-Reporter-Web-App.md).
+
+## Running it for your group
+
+You need a small Linux server (2 vCPU / 2–4 GB is plenty for a group) with Docker, and
+a DNS name pointing at it.
 
 ```
 git clone https://github.com/MadlockUK/nnc-reporter.git
 cd nnc-reporter
-py -3 -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m playwright install chromium
-copy config.example.json config.json
+cp .env.example .env        # then edit it - see "Settings" below
+NNC_DOMAIN=reports.example.org docker compose up -d --build
+docker compose logs app     # the first admin's invitation link is here
 ```
 
-Then edit `config.json` (your details, and the keys you want to use) and run
-`run.bat`. (`setup.bat` does the same steps for you; see below.)
+[`docker-compose.yml`](docker-compose.yml) runs the app behind
+[Caddy](https://caddyserver.com), which gets and renews the HTTPS certificate itself.
+All data (accounts, reports, photos, boundaries) lives in the `nnc-data` volume, so
+**back that volume up**.
 
-- **Config.** `config.json` is private to your machine and is git-ignored. Never commit it.
-- **Keys.** The app looks for API keys in this order: environment variables
-  (`ANTHROPIC_API_KEY`, `WHAT3WORDS_API_KEY`, `NNC_HIGHWAYS_PASSWORD`), then
-  `%USERPROFILE%\.nnc-reporter\keys.json`, then the `keys` block in `config.json`.
-- **My Map.** To link a Google My Map, put its id in `config.json` as
-  `"mymap": {"mid": "..."}`. Leave it blank and the My Map buttons stay hidden.
-- **Data.** The `data\` folder (reports database, photos, thumbnails, caches) is
-  created on first run and is git-ignored. Back it up yourself; it is the only copy of
-  your report history.
-- **Design notes** are in [`docs/`](docs/).
+Any host that runs a container works the same way: Fly.io, Render, Railway, Azure
+Container Apps, AWS Lightsail or ECS. Run the image built from the
+[`Dockerfile`](Dockerfile), give it a persistent volume at `/data`, set the
+environment variables, and put HTTPS in front of it.
+[`docs/NNC-Reporter-AWS-Requirements.md`](docs/NNC-Reporter-AWS-Requirements.md) covers
+a larger AWS set-up if the group grows.
 
-## First-time setup (Windows)
+### The first admin
 
-1. Install Python. Open Command Prompt and paste:
+Set `NNC_BOOTSTRAP_ADMIN=you@example.com` before the first start. With no accounts
+yet, the app invites that address and prints the link in its log (and emails it, if
+email is set up). Alternatively, run this inside the container:
 
-   ```
-   winget install -e --id Python.Python.3.12
-   ```
+```
+python -m nncr.web.manage create-admin --email you@example.com
+```
 
-   Then **close the window and open a new one** so Windows picks up the change.
-   (Or download from [python.org](https://www.python.org/downloads/windows/) and
-   **tick "Add python.exe to PATH"** during install.)
+Open the link, choose a password and set up two-factor sign-in (admins must have it).
+Then invite everyone else from **Admin**.
 
-   Windows pretends to have Python already: typing `python` opens the Microsoft
-   Store instead of running anything. That stub is not usable, which is why the
-   real install is step one.
-2. Double-click **`setup.bat`**. It builds a private environment, installs the
-   packages and the automation browser, and creates `config.json`.
-3. Open **`config.json`** and fill in:
-   - `reporter` — your name, email, phone. The council forms need these; email is
-     how you get the reference number and updates.
-   - `keys.what3words` — free key from
-     [developer.what3words.com](https://developer.what3words.com/public-api).
-     Leave blank and it just uses street + postcode + coordinates instead.
-   - `keys.anthropic` — key from [console.anthropic.com](https://console.anthropic.com)
-     for the photo categorisation. Leave blank and you pick categories yourself.
-4. Double-click **`run.bat`**. Your browser opens at <http://127.0.0.1:8712>.
+### Settings
 
-### Keeping the keys out of a synced folder
+Everything is set with environment variables. Use your host's secret store, or the
+git-ignored `.env` file. **Never commit a secret to the repository.**
+[`.env.example`](.env.example) lists them all; these are the ones that matter:
 
-If this folder is in OneDrive (or any synced or shared folder), anything in
-`config.json` — including a live, billable Anthropic key — syncs to the cloud and
-travels with the folder if it's ever shared with anyone.
+| Variable | What it does |
+|---|---|
+| `NNC_BASE_URL` | The address people use, e.g. `https://reports.example.org`. Used in emailed links; an `https://` address also turns on secure cookies and HSTS. |
+| `NNC_SECRET_KEY` | 32+ random characters. Encrypts the council passwords people save. Keep it with your other secrets; if it is lost, people re-enter those passwords. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_SECURITY` | Email for invitations, password resets and security notices. Any provider works. Without it, links are written to the server log instead. |
+| `MAPBOX_SECRET_TOKEN` | The secret Mapbox token (`sk.…`). See below. |
+| `ANTHROPIC_API_KEY` | Suggests the category and wording from each photo. Optional. |
+| `WHAT3WORDS_API_KEY` | Adds the `///three.word.address`. Optional. |
+| `NNC_MFA_REQUIRED` | Who must use two-factor sign-in: `admins` (default), `all` or `none`. |
+| `NNC_SUBMIT_MODE` | `server` (default): forms are filled on the server and approved in the app. `visible`: a browser window opens on the computer running the app, for desktop use. |
+| `NNC_MAX_BROWSERS` | How many headless browsers may run at once (~1 GB each). Default 2. |
+| `NNC_BOOTSTRAP_ADMIN` | The first admin, invited on first start if there are no accounts. |
 
-Run **`move-keys-out.bat`** once. It lifts the keys into
-`%USERPROFILE%\.nnc-reporter\keys.json`, blanks them in `config.json`, and confirms
-the app still reads them. That file sits outside the synced folder and is not backed up, so
-note the keys somewhere safe. Environment variables `ANTHROPIC_API_KEY` and
-`WHAT3WORDS_API_KEY` override both if you'd rather use those.
+`python -m nncr.web.manage check` shows what is set, without printing any secret.
+
+### The Mapbox token
+
+The secret token is kept on the server only, in `MAPBOX_SECRET_TOKEN`. It is never in
+the repository and never in a web page. Signed-in browsers are given a **temporary
+token** minted from it through Mapbox's Tokens API. That token has read-only map
+scopes, lasts under an hour, and is renewed automatically. Anyone who copies one out of
+a browser gets a map-viewing token that expires within the hour.
+
+For this to work:
+
+1. The secret token needs the **`tokens:write`** scope (tick it when creating the
+   token at account.mapbox.com/access-tokens). It also needs the usual
+   `styles:read`, `styles:tiles` and `fonts:read`.
+2. Put it in the server's environment as `MAPBOX_SECRET_TOKEN`. If you deploy with
+   GitHub Actions, store it as a repository secret (Settings → Secrets and variables →
+   Actions) and pass it to the host from there.
+3. Admin → **Test the Mapbox token** confirms it works.
+
+Mapbox URL restrictions only apply to *public* (`pk.`) tokens, and they check the
+address of the page the map is on, so a restriction to a GitHub address would not match
+the app. If you also want a public fallback, make a `pk.` token restricted to your
+`NNC_BASE_URL` and set it as `MAPBOX_PUBLIC_TOKEN`.
+
+## Accounts and security
+
+- **Invite only.** Admins invite people by email; there is no sign-up page.
+  Invitations work once, for 7 days. Admins can resend, suspend, reactivate, change
+  roles, unlock, reset two-factor, sign someone out everywhere, or remove an account.
+  Removing an account either keeps that person's reports (set aside on the server) or
+  purges them.
+- **Roles.** *Editors* report issues and see the shared map. *Viewers* (councillors,
+  colleagues) see the shared map and summaries only, and cannot change anything.
+  *Admins* also manage people and settings.
+- **Passwords must be strong.** A password needs:
+  - at least 12 characters;
+  - upper and lower case letters, a number and a symbol;
+  - none of your name or email address;
+  - no runs like `aaaa` or `1234`;
+  - not to be guessable, judged by [zxcvbn](https://github.com/dropbox/zxcvbn);
+  - not to appear in a known data breach. This is checked with Have I Been Pwned's
+    k-anonymity API: only the first five characters of the password's SHA-1 hash
+    leave the server.
+
+  Passwords are stored as Argon2id hashes only.
+- **Two-factor sign-in** uses an authenticator app (TOTP), with one-time recovery codes.
+  It is required for admins and available to everyone. Set `NNC_MFA_REQUIRED=all` to
+  require it for everyone. A code can't be used twice.
+- **Brute force is stopped.**
+  - Five wrong passwords lock the account for 15 minutes, doubling on repeats, and
+    the owner is emailed.
+  - Twenty failures from one address in 15 minutes block that address for a while.
+  - Wrong-email and wrong-password failures give the same answer in the same time,
+    so nobody can find out who has an account.
+- **Password reset by email.** The reset link works once, for an hour. Using it signs
+  every device out and emails a notice. **Account** also has change password,
+  two-factor set-up, where you are signed in, and *download my data*.
+- **Every page and API call needs a valid session.** The gatekeeper middleware is
+  deny-by-default, so a new route is protected without anyone remembering to protect
+  it. The tests check every route.
+  - Sessions are random 256-bit values, stored only as hashes.
+  - Session cookies are `HttpOnly`, `Secure` (`__Host-`) and `SameSite=Lax`.
+  - A session ends after 2 hours idle or 12 hours at most.
+  - Changes must come from the site itself (Origin check) and carry the session's
+    CSRF token.
+  - Pages are served with a strict Content-Security-Policy, no framing, and HSTS.
+- **Each person's data is separate on disk** (`/data/users/u<id>/`). Each request is
+  bound to the signed-in person's folder, so report code cannot read anyone else's.
+  Council passwords are encrypted and are never sent back to a browser.
+- **An audit trail** records sign-ins, failures, lockouts, invitations, role changes,
+  resets and each "Submit to council" approval. It is on the Admin page.
+
+## Submitting to the council, from the web
+
+The council has no API, so the tool fills in its web forms as a person would. In the
+web app this happens on the server:
+
+1. Tick reports and press **Prefill selected for review**. A headless browser on the
+   server walks each form to its Submit button (one browser per person, a few at
+   most across the server).
+2. For each report, the **Submitting** panel shows a picture of the filled-in form
+   and every value in its fields.
+3. Press **Submit to council** on the ones to send. The server presses that form's
+   Submit button and records the reference from the confirmation page. **Don't send**
+   closes a form unsent, and nothing is ever sent without that press.
+4. If a form stops part-way (a new question, an asset to pick), open the **Live view**.
+   It is the server's browser, shown in the app: click on it, type into it, scroll it,
+   finish it, then submit.
+
+The server's browser only visits the council's own sites. Clicking a link elsewhere in
+the live view is refused and logged. Unused forms close after 15 minutes. The tool
+still never submits on its own.
+
+If running this from a server isn't wanted, the alternatives are:
+
+- **Desktop mode.** Run the app on your own computer with `NNC_SUBMIT_MODE=visible`.
+  The forms open in a real browser window and you press Submit yourself, as before.
+- **Hybrid.** Host everything else, and run submissions from a small local agent on
+  each person's PC. This is option B in the AWS requirements doc.
+
+Council traffic then comes from a home connection rather than a server. That matters
+only if the council's sites ever start refusing server addresses.
+
+## The shared map and summary
+
+- **Shared map** (for every role) is a Mapbox map of every report the group has sent
+  to the council. Drafts are never shared.
+  - Pins are clustered, colour-coded and filterable by type, stage, date and person.
+  - Popups give the ward, town council, the council's latest position and the
+    reference.
+  - The boundary layers are the council, unitary wards, town councils, town council
+    wards (where they differ, or all of them), and parish councils.
+  - **Shade wards by reports shown** turns it into a choropleth.
+  - **Pick ward** picks any ward, town council or town council ward for area
+    statistics, with breakdowns by ward, town council, town council ward and reporter.
+- **Summary** has tables of the same reports by unitary ward, town council, town
+  council ward, parish, category, type, month, reporter or the council's position.
+  You can filter by date, category, ward and town, and download each table as CSV.
+- **Downloads.** The whole layer, or any filtered slice of it, downloads as GeoJSON,
+  KML (for Google My Maps) or CSV.
+- **Duplicate warnings span the group.** A photo of something a team-mate already
+  reported within 25 m is flagged at upload.
+- Reports show as "Team member" unless that person ticks *Show my name against my
+  reports on the shared map* on their account page. Admins always see who reported
+  what.
+
+## Boundaries
+
+**Admin → Boundaries → Fetch boundaries from ONS** downloads the council boundary, its
+wards (May 2025) and every parish in the area (December 2025) from the ONS Open
+Geography Portal. You can also run `python -m nncr.web.manage fetch-boundaries`. The
+server needs internet access to do this; until then, the ward file bundled with the app
+is used.
+
+- **Town councils.** Tick which parishes are town councils on the same page.
+  Burton Latimer, Corby, Desborough, Finedon, Higham Ferrers, Irthlingborough,
+  Kettering, Oundle, Raunds, Rothwell, Rushden, Thrapston and Wellingborough are
+  ticked to start with. **Check this list**, because community governance reviews
+  change it.
+- **Town council wards** are not published nationally. The app derives them by cutting
+  each town council along the unitary ward lines, which is how the
+  [North Northamptonshire (Electoral Changes) Order 2024](https://www.legislation.gov.uk/uksi/2024/157/made)
+  drew most of them. Where a town's wards are drawn differently (Kettering Town's
+  Hanwood Park, Ise Lodge and Wicksteed, for example), upload the official boundaries
+  as GeoJSON in WGS84 with a `name` (and ideally a `parish`) on each shape. The
+  council's GIS team or the LGBCE can supply them. Uploaded wards replace the derived
+  ones for that town, and the app works out which of them differ from the unitary
+  wards; those are drawn on the map by default.
+
+## Running it on your own computer (Windows)
+
+1. Install Python: `winget install -e --id Python.Python.3.12`, then open a new
+   Command Prompt. See *If setup won't run* below.
+2. Double-click **`setup.bat`**. It builds the environment, installs the packages and
+   the browser, and creates `.env`.
+3. Edit **`.env`**: add the API keys and the Mapbox token.
+4. Double-click **`add-admin.bat`** and enter your email. It prints your invitation
+   link.
+5. Double-click **`run.bat`**. The app opens at <http://127.0.0.1:8712>; open the
+   invitation link and set your password.
+
+Locally, `NNC_SUBMIT_MODE=visible` in `.env` gives the old behaviour: a browser window
+you submit from yourself.
+
+### Bringing over your existing reports
+
+Your desktop install's history (reports, references, photos, My Map pins) can move into
+your web account:
+
+```
+python -m nncr.web.manage import-local --email you@example.com --from path\to\nnc-reporter\data
+```
+
+Add `--profile name` for one of the old extra profiles. The old folder is left
+untouched.
 
 ## Using it
 
@@ -78,10 +263,10 @@ note the keys somewhere safe. Environment variables `ANTHROPIC_API_KEY` and
    already ticked. Check the flagged ones especially: low AI confidence, coordinates
    outside North Northamptonshire, a number plate or a person visible in shot, or
    something you've already reported within 25m.
-3. **Prefill & submit selected.** One browser opens with **a tab per report** — each
-   driven through its form, photo attached, stopped at its Submit button. Read each
-   one and click Submit yourself, in any order; the tool notices each as it goes
-   through and records its reference number — the report id from the highways site,
+3. **Prefill selected for review.** Each report is driven through its council form,
+   photo attached, and stopped at its Submit button (see *Submitting to the council,
+   from the web* above). Check each and press **Submit to council**, in any order; the
+   tool notices each as it goes through and records its reference number — the report id from the highways site,
    or the `FLY…` reference from the fly-tipping form's confirmation page (which it
    reads from inside the form's iframe). If a confirmation ever appears without a
    reference, the report is still marked submitted and you can paste the reference
@@ -103,8 +288,9 @@ note the keys somewhere safe. Environment variables `ANTHROPIC_API_KEY` and
    into My Maps as its own layer, kept as history so you're still warned about
    re-reporting the same spot. Re-exporting a completed report brings it back onto
    the map.
-6. In your Google My Map (the **Open Google My Map** button appears once `mymap.mid`
-   is set in `config.json`):
+6. Download `NNC_Reports.kml` (it downloads as you write the layer, and there is a
+   link on the right), then in your Google My Map (the **Open Google My Map** button
+   appears once its link is on your account page):
    **Add layer → Import → `NNC_Reports.kml`**. Pins are colour-coded by type and each
    one carries the category, status, reference, date, street, What3Words and description.
    The file contains exactly what you ticked, so delete the previous layer before
@@ -138,7 +324,7 @@ full timeline: who said what, when, from which source.
 
 ### Reporting dashboard — what needs chasing
 
-**Reporting dashboard** (toolbar) opens a page of the active profile's reports set
+**Reporting dashboard** (toolbar) opens a page of your own reports set
 against what the council has done with them. It is built from `reports.db` alone —
 the council states and update timelines put there by *Check council updates* and by
 dropping the council's emails in — so it costs nothing to open and needs no network.
@@ -172,34 +358,6 @@ Filters (service, when it was reported, position, and a search box) apply to the
 whole page at once, and the tiles across the top double as one-click filters. Every
 chart has a *Show as a table* link beside it. The page is a single self-contained
 HTML document, so it prints and saves as it stands.
-
-### Interactive Mapbox maps — one per profile
-
-Alongside the Google My Maps KML there are live, interactive maps built on Mapbox:
-
-- **Interactive map** (toolbar) opens the **active profile's** submissions in a new
-  browser tab, served live from the app — clustered pins that expand on click,
-  colour-coded by the same broad types as the KML pins, popups with the photo,
-  category, status, reference (linked to the council's report page), What3Words and
-  description, and tick-box filters for To submit / Submitted / On the map /
-  Completed (submissions on by default).
-- **Write interactive maps** writes a **self-contained HTML file per profile** —
-  `NNC_Reports_map.html` next to the main profile's KML, `NNC_Reports_<profile>_map.html`
-  for the others — built from that profile's own reports. Each file opens anywhere,
-  no tool running, so it can be emailed or dropped in a shared folder. Exported
-  files show only the council's published photo URLs (a standalone file can't reach
-  the app's local photos).
-
-**It needs a Mapbox PUBLIC token** (starts `pk.`) — free at
-[account.mapbox.com/access-tokens](https://account.mapbox.com/access-tokens). Give it
-only the `styles:read`, `styles:tiles` and `fonts:read` scopes, and put it in
-`keys.mapbox` in `config.json` (or `keys.json` / the `MAPBOX_ACCESS_TOKEN`
-environment variable, same precedence as the other keys). The token is embedded in
-the exported HTML — that is what public tokens are for, but it's also why the tool
-**refuses a secret `sk.` token outright** rather than writing it into a shareable
-file. If you ever host the maps on a website, add that site as a URL restriction on
-the token. Without a token the map page explains what's missing instead of sitting
-blank; the header shows a **Mapbox on/off** pill.
 
 ### Photos on the map
 
@@ -304,9 +462,9 @@ Each step is recognised by the fields on it rather than by position, so an extra
 wouldn't derail it. If the form raises a validation message it stops there and repeats
 what the form said, rather than pressing on.
 
-**It needs your home address** for the "Your details" step: put your postcode in
-`reporter.address_postcode` and enough of the first line in `reporter.address_line`
-(e.g. `12 Example Road`) for the tool to pick the right result. Leave them blank and it
+**It needs your home address** for the "Your details" step: put your postcode and
+enough of the first line (e.g. `12 Example Road`) on your **Account** page for the
+tool to pick the right result. Leave them blank and it
 stops at that step for you to choose — it won't guess between addresses.
 
 If a category ever turns out to be a dead end like this, the tool spots the notice,
@@ -356,24 +514,17 @@ needs, and waits for the step to change before moving on. A slow-rendering page 
 If a step fails to advance twice running it stops and names it, rather than typing
 into the wrong boxes.
 
-**It signs in to the highways site for you.** Put your account details in
-`highways_login` in `config.json` and each submission signs in first, so reports land
-in your account, appear under "My reports", and skip the email-confirmation step.
-When signed in, the name and email fields are left to the account rather than typed in.
+**It signs in to the highways site for you.** Put your highways sign-in email and
+password on your **Account** page (the password is stored encrypted and never shown
+again) and each run signs in first, so reports land in your account, appear under "My
+reports", and skip the email-confirmation step. When signed in, the name and email
+fields are left to the account rather than typed in. Untick *Sign in to the highways
+site automatically* to report as a guest instead.
 
-Run **`sign-in.bat`** once to sign in and confirm it works — the session is saved and
-subsequent reports are already signed in. Set `highways_login.enabled` to `false` to
-report as a guest instead.
+**One submission run per person at a time.** Each person's signed-in highways session
+is a Chromium profile in their own data folder, never shared. Stale locks left by a
+crash are cleared automatically.
 
-**Only one automation browser at a time.** The signed-in session is a Chromium profile
-in `%LOCALAPPDATA%\nnc-reporter\browser-profile` (outside any synced folder — a browser profile
-in a synced folder gets its lock files copied around and Chromium then refuses to
-start). If a window this tool opened is still open, the next report can't start; close
-it first. Stale locks left by a crash are cleared automatically.
-
-The password is a secret: run **`move-keys-out.bat`** to shift it (and your API keys)
-to `%USERPROFILE%\.nnc-reporter\keys.json`, outside any synced folder. `NNC_HIGHWAYS_PASSWORD`
-as an environment variable overrides both.
 
 **Photos with no GPS are skipped**, with the reason shown — usually location
 services were off, or the image was screenshotted/re-saved and lost its EXIF.
@@ -401,18 +552,20 @@ right-click each `.bat` → Properties → tick *Unblock*.
 ## If a form stops being filled in
 
 Councils redesign forms. Nothing is hardcoded in the Python: `selectors.json` holds
-lists of candidate selectors per field, tried in order. Run **`run-inspect.bat`** to
-dump the live form's real field ids to `data/form-inspect.txt`, then add the correct
-selector to the top of the relevant list.
+lists of candidate selectors per field, tried in order. Run **`run-inspect.bat`** (or
+`python app.py --inspect --url <form address>`) to dump the live form's real field ids
+to `data/form-inspect.txt`, then add the correct selector to the top of the relevant
+list. In the web app, the **Live view** shows exactly where a form stopped.
 
-`run-inspect.bat` and the log panel in the app are the two places to look when
-something misbehaves — the log names the exact field it couldn't find.
+The **Submitting** panel's log (with its *Copy log* button) and `run-inspect.bat` are
+the places to look when something misbehaves — the log names the exact field it
+couldn't find.
 
 ## Checking the install
 
 **`check-keys.bat`** — confirms your What3Words key, the street lookup and the photo
 categorisation all respond, using one test coordinate in Kettering. Run this after
-editing `config.json`.
+editing `.env`.
 
 **`selfcheck.py`** (`.venv\Scripts\python.exe selfcheck.py`) — offline tests of EXIF
 parsing, category lookup, report wording and KML generation. Touches no data, submits
@@ -421,13 +574,37 @@ nothing, needs no keys.
 **`checkcode.py`** — scans every module for names used but never defined, which is
 what a bad edit usually leaves behind. Both run automatically at the end of setup.
 
+**`tests/`** (`python -m pytest tests`) — the web app's tests:
+- **Sign-in can't be bypassed.** Every route is checked without a session. Also
+  covered: CSRF and origin, the password rules, lockout, resets and invitations,
+  two-factor (including replay), and role limits.
+- **Data and the shared layer.** One person can't see another's reports; the shared
+  layer, summaries and downloads; Mapbox's secret token never reaching a page; the
+  boundary processing.
+- **Server-side submission.** A real headless browser fills a form, waits for
+  approval, presses Submit, captures the reference, and refuses to leave the council's
+  sites.
+
+`python -m nncr.web.manage check` shows the server's configuration without printing a
+secret.
+
 ## Layout
 
 ```
-config.json          your details and API keys (local only)
+.env                 settings and secrets for running locally (git-ignored)
 selectors.json       form field selectors, editable when a council form changes
-app.py               web server + photo intake pipeline
-selfcheck.py         offline tests
+app.py               starts the web app
+Dockerfile, docker-compose.yml, deploy/Caddyfile   hosting
+nncr/web/server.py   the app: routes and pages wired together
+nncr/web/auth.py     sign-in, sessions, the deny-by-default gatekeeper
+nncr/web/security.py password rules and hashing, two-factor, encryption
+nncr/web/account.py  your account; admin.py - people and settings
+nncr/web/reports.py  the reporting tool's API, per signed-in person
+nncr/web/org.py      the shared map, summary and downloads (aggregate.py)
+nncr/web/boundaries.py council, wards, town councils and their wards
+nncr/web/mapbox.py   short-lived browser tokens from the secret token
+nncr/web/manage.py   command line: first admin, imports, boundary fetch
+selfcheck.py         offline tests; tests/ - the web app's tests
 nncr/photos.py       EXIF GPS, timestamps, HEIC, thumbnails, dedupe hashing
 nncr/geo.py          OpenStreetMap reverse geocoding + What3Words (cached)
 nncr/classify.py     photo → category, summary, description
@@ -437,13 +614,17 @@ nncr/kml.py          KML + CSV export for Google My Maps
 nncr/webmap.py       interactive Mapbox map, live and exported
 nncr/dashboard.py    reporting dashboard - council positions, ageing, chase list
 nncr/store.py        SQLite queue and permanent report history
-data/                photos, thumbnails, reports.db, browser profile, caches
+data/                accounts.db, boundaries/, caches, and users/u<id>/ - each
+                     person's reports.db, photos, thumbnails and browser profile
 ```
 
-Report history lives in `data/reports.db` and is what stops the same photo, or the
-same issue at the same spot, being reported twice. Keep it.
+Each person's report history lives in their `reports.db` and is what stops the same
+photo, or the same issue at the same spot, being reported twice. Back up the whole
+data folder (the `nnc-data` volume when using Docker).
 
 ## Attribution
 
-Ward boundaries: Office for National Statistics (May 2026), Open Government Licence
-v3.0. Contains OS data © Crown copyright and database right 2026.
+Boundaries: Office for National Statistics (wards May 2025, parishes December 2025),
+Open Government Licence v3.0. Contains OS data © Crown copyright and database right
+2026. Map data © Mapbox © OpenStreetMap contributors. Leaflet (BSD-2-Clause) is
+bundled in `nncr/web/assets/vendor/leaflet`.

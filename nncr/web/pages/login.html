@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in – NNC Reporter</title>
+<link rel="icon" href="/assets/icon.svg">
+<link rel="stylesheet" href="/assets/common.css">
+<script src="/assets/common.js"></script>
+</head>
+<body>
+<main class="narrow">
+  <div class="brand"><img src="/assets/icon.svg" alt=""><b>NNC Reporter</b></div>
+  <div class="card" id="box"></div>
+  <p class="muted" style="text-align:center">For invited members only.
+    <a href="/privacy">How your data is used</a></p>
+</main>
+<script>
+const box = document.getElementById('box');
+const path = location.pathname;
+const hashToken = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+let RULES = [], MIN = 12;
+
+function msg(kind, text) {
+  const el = document.getElementById('msg');
+  el.className = 'msg ' + kind; el.textContent = text; el.hidden = !text;
+}
+function safeNext() {
+  const n = new URLSearchParams(location.search).get('next') || '/';
+  return (n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/\\')) ? n : '/';
+}
+async function post(url, body, csrf) {
+  const h = {'Content-Type': 'application/json'};
+  if (csrf) h['X-CSRF-Token'] = csrf;
+  const res = await fetch(url, {method: 'POST', headers: h, body: JSON.stringify(body)});
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  return {ok: res.ok, status: res.status, data};
+}
+function busy(form, on) { form.querySelectorAll('button,input').forEach(e => e.disabled = on); }
+
+// ------------------------------------------------------------ sign in
+function showLogin(note) {
+  document.title = 'Sign in – NNC Reporter';
+  box.innerHTML = `<h2>Sign in</h2>
+    <div id="msg" class="msg" hidden></div>
+    <form id="f" autocomplete="on">
+      <label class="f"><span>Email</span><input type="email" id="email" autocomplete="username" required autofocus></label>
+      <label class="f"><span>Password</span><input type="password" id="pw" autocomplete="current-password" required></label>
+      <div class="acts"><button class="primary" type="submit">Sign in</button>
+        <a href="/forgot">Forgotten your password?</a></div>
+    </form>`;
+  if (note) msg('info', note);
+  document.getElementById('f').onsubmit = async e => {
+    e.preventDefault(); busy(e.target, true); msg('', '');
+    const r = await post('/api/auth/login', {email: email.value, password: pw.value});
+    busy(e.target, false);
+    if (!r.ok) { msg('err', r.data.detail || 'Could not sign in.'); pw.value = ''; pw.focus(); return; }
+    window.setCsrf(r.data.csrf);
+    if (r.data.next === 'mfa') return showMfa(r.data.csrf);
+    if (r.data.next === 'enrol') { location.href = '/account?enrol=1'; return; }
+    location.href = safeNext();
+  };
+}
+
+function showMfa(csrf) {
+  box.innerHTML = `<h2>Two-factor code</h2>
+    <p class="muted">Enter the 6-digit code from your authenticator app — or one of your
+      recovery codes if you have lost your phone.</p>
+    <div id="msg" class="msg" hidden></div>
+    <form id="f" autocomplete="off">
+      <label class="f"><span>Code</span><input type="text" id="code" inputmode="numeric"
+        autocomplete="one-time-code" maxlength="20" required autofocus></label>
+      <div class="acts"><button class="primary" type="submit">Continue</button>
+        <a href="#" id="cancel">Start again</a></div>
+    </form>`;
+  document.getElementById('cancel').onclick = async e => {
+    e.preventDefault(); await post('/api/auth/logout', {}); showLogin(); };
+  document.getElementById('f').onsubmit = async e => {
+    e.preventDefault(); busy(e.target, true);
+    const r = await post('/api/auth/mfa', {code: code.value}, csrf);
+    busy(e.target, false);
+    if (!r.ok) {
+      if (r.status === 400 || r.status === 401 && /sign in again/.test(r.data.detail || ''))
+        return showLogin(r.data.detail);
+      msg('err', r.data.detail || 'That code did not work.'); code.value = ''; code.focus(); return;
+    }
+    if (r.data.recovery_codes_left !== null && r.data.recovery_codes_left !== undefined)
+      alert('You used a recovery code. ' + r.data.recovery_codes_left
+            + ' left - make new ones on your account page.');
+    location.href = safeNext();
+  };
+}
+
+// ------------------------------------------------------------ forgotten
+function showForgot() {
+  document.title = 'Reset your password – NNC Reporter';
+  box.innerHTML = `<h2>Reset your password</h2>
+    <p class="muted">Enter your email address. If it has an account, we will email a
+      link to choose a new password. The link works once, for an hour.</p>
+    <div id="msg" class="msg" hidden></div>
+    <form id="f"><label class="f"><span>Email</span>
+      <input type="email" id="email" autocomplete="username" required autofocus></label>
+      <div class="acts"><button class="primary" type="submit">Send the link</button>
+        <a href="/login">Back to sign in</a></div></form>`;
+  document.getElementById('f').onsubmit = async e => {
+    e.preventDefault(); busy(e.target, true);
+    const r = await post('/api/auth/forgot', {email: email.value});
+    busy(e.target, false);
+    msg(r.ok ? 'ok' : 'err', r.data.message || r.data.detail || 'Something went wrong.');
+  };
+}
+
+// ---------------------------------------------------- new password forms
+function rulesHtml() {
+  return `<ul class="rules" id="rules">${RULES.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`;
+}
+function liveRules(input) {
+  const checks = [p => p.length >= MIN, p => /[a-z]/.test(p) && /[A-Z]/.test(p) && /\d/.test(p) && /[^A-Za-z0-9]/.test(p)];
+  input.addEventListener('input', () => {
+    const items = document.querySelectorAll('#rules li');
+    checks.forEach((c, i) => items[i] && items[i].classList.toggle('ok', c(input.value)));
+  });
+}
+function passwordForm(title, intro, extra, onSubmit) {
+  box.innerHTML = `<h2>${title}</h2>${intro}
+    <div id="msg" class="msg" hidden></div>
+    <form id="f">${extra}
+      <label class="f"><span>New password</span>
+        <input type="password" id="pw" autocomplete="new-password" required></label>
+      <label class="f"><span>Type it again</span>
+        <input type="password" id="pw2" autocomplete="new-password" required></label>
+      ${rulesHtml()}
+      <div class="acts"><button class="primary" type="submit">Save password</button></div>
+    </form>`;
+  liveRules(pw);
+  document.getElementById('f').onsubmit = async e => {
+    e.preventDefault();
+    if (pw.value !== pw2.value) return msg('err', 'The two passwords do not match.');
+    busy(e.target, true);
+    const r = await onSubmit(pw.value);
+    busy(e.target, false);
+    if (!r.ok) return msg('err', r.data.detail || 'Could not save the password.');
+    history.replaceState(null, '', location.pathname);
+    showLogin(r.note || 'Password saved. Sign in with it now.');
+  };
+}
+
+async function showReset() {
+  document.title = 'Choose a new password – NNC Reporter';
+  if (!hashToken) return showForgot();
+  passwordForm('Choose a new password',
+    '<p class="muted">Every device signed in to your account will be signed out.</p>', '',
+    pw => post('/api/auth/reset', {token: hashToken, password: pw}));
+}
+
+async function showInvite() {
+  document.title = 'Accept your invitation – NNC Reporter';
+  const r = await post('/api/auth/invite/info', {token: hashToken});
+  if (!r.ok) {
+    box.innerHTML = `<h2>Invitation</h2><div class="msg err">${esc(r.data.detail || 'This link does not work.')}</div>
+      <a href="/login">Go to sign in</a>`;
+    return;
+  }
+  passwordForm('Welcome to NNC Reporter',
+    `<p class="muted">Set up the account for <b>${esc(r.data.email)}</b>.</p>`,
+    `<label class="f"><span>Your name (as the council should see it)</span>
+       <input type="text" id="nm" autocomplete="name" required value="${esc(r.data.name || '')}"></label>`,
+    async pw => {
+      const res = await post('/api/auth/invite/accept', {token: hashToken, password: pw,
+        name: document.getElementById('nm').value});
+      res.note = 'Your account is ready. Sign in with your email and new password.';
+      return res;
+    });
+}
+
+(async () => {
+  try {
+    const p = await (await fetch('/api/auth/policy')).json();
+    RULES = p.rules; MIN = p.min_length;
+  } catch (e) {}
+  if (path === '/forgot') return showForgot();
+  if (path === '/reset') return showReset();
+  if (path === '/invite') return showInvite();
+  const st = await (await fetch('/api/auth/state')).json();
+  if (st.stage === 'mfa') return showMfa(st.csrf);
+  if (st.signed_in) { location.href = safeNext(); return; }
+  if (st.stage === 'enrol') { location.href = '/account?enrol=1'; return; }
+  showLogin();
+})();
+</script>
+</body>
+</html>

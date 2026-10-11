@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Admin – NNC Reporter</title>
+<link rel="icon" href="/assets/icon.svg">
+<link rel="stylesheet" href="/assets/common.css">
+<script src="/assets/common.js"></script>
+</head>
+<body>
+<!--NAV-->
+<main class="wrap" style="max-width:1150px">
+  <div class="card"><h2>People</h2>
+    <div id="m-users" class="msg" hidden></div>
+    <div class="scroll"><table id="users"></table></div>
+    <h3>Invite someone</h3>
+    <div class="row2" style="grid-template-columns:2fr 2fr 1fr auto;align-items:end">
+      <label class="f"><span>Email</span><input type="email" id="i-email"></label>
+      <label class="f"><span>Name</span><input type="text" id="i-name"></label>
+      <label class="f"><span>Role</span><select id="i-role">
+        <option value="editor">Editor</option><option value="viewer">Viewer</option>
+        <option value="admin">Admin</option></select></label>
+      <div class="f"><button class="primary" onclick="invite()">Send invitation</button></div>
+    </div>
+    <p class="muted"><b>Editors</b> report issues and see the shared map. <b>Viewers</b> see
+      the shared map and summaries only. <b>Admins</b> also manage people and settings.
+      Invitations work once, for 7 days.</p>
+    <div id="m-invite" class="msg" hidden></div>
+  </div>
+
+  <div class="card"><h2>Server settings</h2><div id="status" class="muted">Loading…</div>
+    <div class="acts"><button onclick="testMapbox()">Test the Mapbox token</button>
+      <button onclick="refreshCats()">Refresh council categories</button></div>
+    <div id="m-status" class="msg" hidden></div>
+  </div>
+
+  <div class="card"><h2>Boundaries</h2>
+    <div id="bnd" class="muted">Loading…</div>
+    <div class="acts"><button class="primary" onclick="fetchBnd()">Fetch boundaries from ONS</button>
+      <span class="muted">The council, its wards and every parish (needs internet access on the server).</span></div>
+    <h3>Upload official boundaries</h3>
+    <p class="muted">GeoJSON in WGS84 (EPSG:4326), with a <code>name</code> on each shape. For
+      town council wards add a <code>parish</code> (the town) where you can - otherwise it is
+      worked out. Uploaded town council wards replace the derived ones for their town.</p>
+    <div class="acts"><select id="u-layer" style="width:auto">
+        <option value="parish_wards">Town council wards</option>
+        <option value="parishes">Parishes / town councils</option>
+        <option value="wards">Unitary wards</option>
+        <option value="lad">Council boundary</option></select>
+      <input type="file" id="u-file" accept=".geojson,.json,application/geo+json">
+      <button onclick="uploadBnd()">Upload</button></div>
+    <div id="m-bnd" class="msg" hidden></div>
+    <h3>Which parishes are town councils</h3>
+    <div id="towns" class="muted"></div>
+  </div>
+
+  <div class="card"><h2>Activity</h2><div class="scroll"><table id="audit"></table></div></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let ME = null;
+function say(id, kind, text) { const el = $(id); el.className = 'msg ' + kind; el.innerHTML = text; el.hidden = !text; }
+
+let USERS = {};
+async function loadUsers() {
+  const d = await (await fetch('/api/admin/users')).json();
+  USERS = Object.fromEntries(d.users.map(u => [u.id, u]));
+  $('users').innerHTML = '<tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>2FA</th><th>Last sign-in</th><th></th></tr>'
+    + d.users.map(u => `<tr>
+      <td>${esc(u.name || '—')}</td><td>${esc(u.email)}</td>
+      <td><select onchange="change(${u.id},{role:this.value})" ${u.id === ME.id ? 'disabled' : ''} style="width:auto">
+        ${d.roles.map(r => `<option ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+      <td><span class="tag ${u.status === 'active' ? 'ok' : u.status === 'invited' ? 'warn' : 'bad'}">${u.status}</span>
+        ${u.locked ? `<span class="tag bad">${esc(u.locked)}</span>` : ''}</td>
+      <td>${u.mfa_enabled ? '<span class="tag ok">on</span>' : (u.mfa_required ? '<span class="tag warn">due</span>' : 'off')}</td>
+      <td>${when(u.last_login)}</td>
+      <td style="white-space:nowrap">${u.id === ME.id ? '<span class="muted">you</span>' : actions(u)}</td></tr>`).join('');
+}
+
+function actions(u) {
+  const b = (label, fn, cls = '') => `<button class="small ${cls}" onclick="${fn}">${label}</button> `;
+  let out = '';
+  if (u.status === 'invited') out += b('Resend invite', `resend(${u.id})`);
+  if (u.status === 'active') out += b('Send reset link', `post(${u.id},'reset-password','Password reset link sent.')`)
+    + b('Suspend', `change(${u.id},{status:'suspended'})`, 'danger');
+  if (u.status === 'suspended') out += b('Reactivate', `change(${u.id},{status:'active'})`);
+  if (u.locked) out += b('Unlock', `post(${u.id},'unlock','Unlocked.')`);
+  if (u.mfa_enabled) out += b('Reset 2FA', `post(${u.id},'reset-mfa','Two-factor reset - they set it up again at next sign-in.')`);
+  if (u.status === 'active') out += b('Sign out', `post(${u.id},'sign-out','Signed out everywhere.')`);
+  out += b('Remove', `removeUser(${u.id})`, 'danger');
+  return out;
+}
+
+async function change(id, body) {
+  const res = await fetch('/api/admin/users/' + id, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res.ok) say('m-users', 'err', esc(await apiError(res))); else say('m-users', 'ok', 'Saved.');
+  loadUsers(); loadAudit();
+}
+async function post(id, what, done) {
+  const res = await fetch(`/api/admin/users/${id}/${what}`, {method: 'POST'});
+  if (!res.ok) return say('m-users', 'err', esc(await apiError(res)));
+  const d = await res.json();
+  say('m-users', 'ok', esc(done + (d.note ? ' (' + d.note + ')' : '')));
+  loadUsers(); loadAudit();
+}
+async function resend(id) {
+  const res = await fetch(`/api/admin/users/${id}/invite`, {method: 'POST'});
+  if (!res.ok) return say('m-users', 'err', esc(await apiError(res)));
+  inviteNote(await res.json(), 'm-users');
+}
+async function removeUser(id) {
+  const email = USERS[id].email, hasData = USERS[id].has_data;
+  if (!confirm(`Remove ${email}? They can no longer sign in.`)) return;
+  const purge = hasData && confirm(`Also delete ${email}'s reports and photos?\n\nOK = delete them.\nCancel = keep them (set aside on the server).`);
+  const res = await fetch(`/api/admin/users/${id}?purge=${purge}`, {method: 'DELETE'});
+  if (!res.ok) return say('m-users', 'err', esc(await apiError(res)));
+  say('m-users', 'ok', 'Removed.'); loadUsers(); loadAudit();
+}
+function inviteNote(d, box) {
+  say(box, 'ok', (d.emailed ? 'Invitation emailed. ' : '<b>Email is not set up on the server</b>, so send this link yourself. ')
+    + 'You can also pass the link on directly - it works once, for 7 days:<br><input type="text" readonly value="'
+    + esc(d.invite_url) + '" onclick="this.select()" style="margin-top:6px">');
+}
+async function invite() {
+  const res = await fetch('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email: $('i-email').value, name: $('i-name').value, role: $('i-role').value})});
+  if (!res.ok) return say('m-invite', 'err', esc(await apiError(res)));
+  inviteNote(await res.json(), 'm-invite');
+  $('i-email').value = ''; $('i-name').value = '';
+  loadUsers(); loadAudit();
+}
+
+async function loadStatus() {
+  const s = await (await fetch('/api/admin/status')).json();
+  const yes = (v, good = 'set', bad = 'not set') => v ? `<span class="tag ok">${good}</span>` : `<span class="tag bad">${bad}</span>`;
+  const mb = s.mapbox;
+  $('status').innerHTML = `<table>
+    <tr><td>Address used in emails</td><td>${esc(s.base_url)}</td></tr>
+    <tr><td>Email (SMTP)</td><td>${yes(s.mail, 'working: ' + esc(s.mail_from), 'not configured - links go to the server log')}</td></tr>
+    <tr><td>Two-factor sign-in required for</td><td>${esc(s.mfa_required)}</td></tr>
+    <tr><td>Passwords</td><td>at least ${s.password_min_length} characters, mixed case, a number and a symbol${s.hibp ? ', checked against known breaches' : ''}</td></tr>
+    <tr><td>Sessions</td><td>end after ${s.session.idle_minutes} minutes idle, or ${s.session.max_hours} hours at most</td></tr>
+    <tr><td>Mapbox</td><td>${mb.working ? `<span class="tag ok">${mb.kind === 'temporary' ? 'secret token - short-lived browser tokens' : 'public token'}</span>`
+      : `<span class="tag bad">not working</span> ${esc(mb.problem || '')}`} ${mb.username ? '· account ' + esc(mb.username) : ''}</td></tr>
+    <tr><td>Photo categorisation (Anthropic)</td><td>${yes(s.anthropic)}</td></tr>
+    <tr><td>What3Words</td><td>${yes(s.what3words)}</td></tr>
+    <tr><td>Submitting to the council</td><td>${s.submit_mode === 'server' ? 'from the server, after each person approves each form'
+      : s.submit_mode === 'visible' ? 'in a browser window on this computer' : 'switched off'}</td></tr>
+    <tr><td>Encryption key</td><td>${s.secret_key_from_env ? '<span class="tag ok">from NNC_SECRET_KEY</span>'
+      : '<span class="tag warn">generated on the data volume - set NNC_SECRET_KEY</span>'}</td></tr></table>`;
+}
+async function testMapbox() {
+  const d = await (await fetch('/api/admin/mapbox/test', {method: 'POST'})).json();
+  say('m-status', d.working ? 'ok' : 'err', d.working ? `Mapbox is working (${d.kind} token).` : esc(d.problem));
+  loadStatus();
+}
+async function refreshCats() {
+  const res = await fetch('/api/admin/categories/refresh', {method: 'POST'});
+  say('m-status', res.ok ? 'ok' : 'err', res.ok ? `Loaded ${(await res.json()).count} live categories from the council site.` : esc(await apiError(res)));
+}
+
+async function loadBnd() {
+  const b = await (await fetch('/api/admin/boundaries')).json();
+  const L = b.layers, label = {lad: 'Council boundary', wards: 'Unitary wards', parishes: 'Parishes', parish_wards: 'Town council wards'};
+  $('bnd').innerHTML = '<table><tr><th>Layer</th><th class="num">Shapes</th><th>Source</th><th>Updated</th></tr>'
+    + Object.keys(label).map(k => `<tr><td>${label[k]}</td><td class="num">${L[k].count}</td>
+      <td>${esc(L[k].source || (k === 'wards' && b.wards_bundled ? 'bundled with the app' : k === 'lad' && b.lad_derived ? 'worked out from the wards' : '—'))}</td>
+      <td>${when(L[k].updated)}</td></tr>`).join('') + '</table>'
+    + (b.fetch.running ? '<div class="msg info">Fetching…</div>' : b.fetch.message ? `<div class="msg ${/failed/.test(b.fetch.message) ? 'err' : 'ok'}">${esc(b.fetch.message)}</div>` : '');
+  const towns = new Set(b.town_councils);
+  const names = b.parishes.length ? b.parishes : b.town_councils;
+  $('towns').innerHTML = (b.parishes.length ? '' : '<p>Parishes are not loaded yet - this is the list that will be used:</p>')
+    + '<div style="columns:3;font-size:14px">' + names.map(n => `<label style="display:block"><input type="checkbox" data-town="${esc(n)}" ${towns.has(n) || [...towns].some(t => n.toLowerCase().startsWith(t.toLowerCase())) ? 'checked' : ''}> ${esc(n)}</label>`).join('') + '</div>'
+    + '<div class="acts"><button onclick="saveTowns()">Save town councils</button></div>';
+  if (b.fetch.running) setTimeout(loadBnd, 3000);
+}
+async function fetchBnd() { await fetch('/api/admin/boundaries/fetch', {method: 'POST'}); loadBnd(); }
+async function uploadBnd() {
+  const f = $('u-file').files[0];
+  if (!f) return say('m-bnd', 'err', 'Choose a GeoJSON file first.');
+  const fd = new FormData(); fd.append('layer', $('u-layer').value); fd.append('file', f);
+  const res = await fetch('/api/admin/boundaries/upload', {method: 'POST', body: fd});
+  if (!res.ok) return say('m-bnd', 'err', esc(await apiError(res)));
+  const d = await res.json();
+  say('m-bnd', 'ok', `Loaded ${d.count} shapes` + (d.towns ? ` for ${esc(d.towns.join(', '))} - ${d.differ} differ from the unitary wards.` : '.'));
+  loadBnd();
+}
+async function saveTowns() {
+  const names = [...document.querySelectorAll('[data-town]')].filter(c => c.checked).map(c => c.dataset.town);
+  const res = await fetch('/api/admin/boundaries/town-councils', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({names})});
+  say('m-bnd', res.ok ? 'ok' : 'err', res.ok ? 'Saved.' : esc(await apiError(res)));
+  loadBnd();
+}
+
+async function loadAudit() {
+  const d = await (await fetch('/api/admin/audit?limit=150')).json();
+  $('audit').innerHTML = '<tr><th>When</th><th>What</th><th>Account</th><th>By</th><th>From</th><th>Detail</th></tr>'
+    + d.events.map(e => `<tr><td style="white-space:nowrap">${when(e.at)}</td><td>${esc(e.event)}</td><td>${esc(e.user)}</td>
+      <td>${esc(e.actor)}</td><td class="mono">${esc(e.ip || '')}</td><td>${esc(e.detail || '')}</td></tr>`).join('');
+}
+
+(async () => {
+  ME = (await (await fetch('/api/me')).json()).user;
+  $('nav-admin').hidden = false;
+  loadUsers(); loadStatus(); loadBnd(); loadAudit();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# HTTPS in front of NNC Reporter. Caddy gets and renews the certificate itself.
+{$NNC_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 400MB
+	}
+	reverse_proxy app:8712
+}

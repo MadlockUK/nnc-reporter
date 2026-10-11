@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Summary – NNC Reporter</title>
+<link rel="icon" href="/assets/icon.svg">
+<link rel="stylesheet" href="/assets/common.css">
+<script src="/assets/common.js"></script>
+<style>
+  .bar{height:9px;border-radius:5px;background:var(--accent);min-width:2px}
+  .filters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
+  @media(max-width:860px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+  .kpi span{font-size:13px;color:var(--mut)}
+</style>
+</head>
+<body>
+<!--NAV-->
+<main class="wrap" style="max-width:1100px">
+  <div class="card"><h2>Reports sent to the council, by area</h2>
+    <p class="muted">Every report the group has submitted, placed in its unitary ward,
+      town council and town council ward. Drafts that have not been sent are not included.</p>
+    <div class="filters">
+      <label class="f"><span>Group by</span><select id="by"></select></label>
+      <label class="f"><span>From</span><input type="date" id="since"></label>
+      <label class="f"><span>To</span><input type="date" id="until"></label>
+      <label class="f"><span>Category</span><select id="category"><option value="">All</option></select></label>
+      <label class="f"><span>Unitary ward</span><select id="ward"><option value="">All</option></select></label>
+      <label class="f"><span>Town</span><select id="parish"><option value="">All</option></select></label>
+    </div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <div class="card"><div class="scroll"><table id="table"></table></div>
+    <div class="acts">
+      <a id="dl-summary" href="#"><button>Download this table (CSV)</button></a>
+      <a id="dl-csv" href="#"><button>Download the reports (CSV)</button></a>
+      <a id="dl-geo" href="#"><button>GeoJSON</button></a>
+      <a id="dl-kml" href="#"><button>KML (Google My Maps)</button></a>
+      <a href="/map"><button class="primary">Open the shared map</button></a>
+    </div>
+    <p class="muted" id="gen"></p>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let first = true;
+function qs() {
+  const p = new URLSearchParams();
+  for (const k of ['by', 'since', 'until', 'category', 'ward', 'parish']) if ($(k).value) p.set(k, $(k).value);
+  return p;
+}
+async function load() {
+  const p = qs();
+  const res = await fetch('/api/org/summary?' + p);
+  if (!res.ok) { $('table').innerHTML = '<tr><td>' + esc(await apiError(res)) + '</td></tr>'; return; }
+  const d = await res.json();
+  if (first) {
+    $('by').innerHTML = Object.entries(d.groups).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+    $('by').value = d.by;
+    const fill = (id, list) => $(id).insertAdjacentHTML('beforeend', list.map(x => `<option>${esc(x)}</option>`).join(''));
+    fill('category', d.categories); fill('ward', d.wards); fill('parish', d.towns);
+    first = false;
+  }
+  const max = Math.max(1, ...d.rows.map(r => r.count));
+  const open = d.rows.reduce((a, r) => a + r.open, 0), fixed = d.rows.reduce((a, r) => a + r.fixed, 0);
+  $('kpis').innerHTML = `<div class="kpi"><b>${d.total}</b><span>reports sent to the council</span></div>
+    <div class="kpi"><b>${open}</b><span>still open, as far as we know</span></div>
+    <div class="kpi"><b>${fixed}</b><span>fixed, by the council's own word</span></div>`;
+  $('table').innerHTML = `<tr><th>${esc(d.label)}</th><th class="num">Reports</th><th style="width:22%"></th>
+      <th class="num">Open</th><th class="num">Fixed</th><th>Most-reported streets</th></tr>`
+    + d.rows.map(r => `<tr><td>${esc(r.key)}</td><td class="num">${r.count}</td>
+      <td><div class="bar" style="width:${Math.round(100 * r.count / max)}%"></div></td>
+      <td class="num">${r.open}</td><td class="num">${r.fixed}</td><td class="muted">${esc(r.top_streets)}</td></tr>`).join('')
+    + (d.rows.length ? '' : '<tr><td colspan="6" class="muted">Nothing matches these filters yet.</td></tr>');
+  $('gen').textContent = 'As at ' + d.generated + '. "Open" counts everything the council has not marked fixed or closed - press "Check council updates" in the app to refresh what it says.';
+  const rest = new URLSearchParams(p); rest.delete('by');
+  $('dl-summary').href = '/api/org/summary.csv?' + p;
+  $('dl-csv').href = '/api/org/reports.csv?' + rest;
+  $('dl-geo').href = '/api/org/reports.geojson?' + rest;
+  $('dl-kml').href = '/api/org/reports.kml?' + rest;
+}
+for (const k of ['by', 'since', 'until', 'category', 'ward', 'parish']) $(k).addEventListener('change', load);
+fetch('/api/me').then(r => r.json()).then(d => {
+  $('nav-admin').hidden = d.user.role !== 'admin'; $('nav-app').hidden = d.user.role === 'viewer'; });
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# One server, two containers: the app, and Caddy for HTTPS.
+#   1. Point a DNS name at the server (e.g. reports.example.org).
+#   2. cp .env.example .env  and fill it in (NNC_BASE_URL=https://that-name).
+#   3. NNC_DOMAIN=reports.example.org docker compose up -d --build
+#   4. docker compose logs app   -> the first admin's invitation link
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      NNC_DATA_DIR: /data
+      NNC_HOST: 0.0.0.0
+      # Only Caddy can reach the app (it is not published), so trust its
+      # X-Forwarded-For header for the client's address.
+      NNC_FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - nnc-data:/data
+    expose:
+      - "8712"
+    shm_size: 1gb          # Chromium needs more shared memory than Docker's default
+    restart: unless-stopped
+  caddy:
+    image: caddy:2.8
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NNC_DOMAIN: ${NNC_DOMAIN:?set NNC_DOMAIN to the app's DNS name}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+volumes:
+  nnc-data:
+  caddy-data:
+  caddy-config:

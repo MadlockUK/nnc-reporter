@@ -2,6 +2,9 @@
 /data
 
 # Config, secrets and backups
+.env
+.env.*
+!.env.example
 config.json
 config*.bak*
 keys.json
@@ -26,8 +29,10 @@ NNC_Reports*
 *.heif
 *.webp
 !nncr/static/**
+!nncr/web/assets/**
 
 # Python / environment
+.pytest_cache/
 .venv/
 venv/
 __pycache__/

@@ -5,8 +5,8 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-if not exist "config.json" copy config.example.json config.json >nul
-".venv\Scripts\python.exe" app.py
+if not exist ".env" copy .env.example .env >nul
+".venv\Scripts\python.exe" app.py --open
 if errorlevel 1 (
   echo.
   echo The app stopped with an error - the messages above say why.

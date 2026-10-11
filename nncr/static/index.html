@@ -2,9 +2,13 @@
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
 <title>NNC Reporter</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="icon" href="/assets/icon.svg">
+<link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css">
+<script src="/assets/vendor/leaflet/leaflet.js"></script>
+<script src="/assets/common.js"></script>
 <style>
   :root{--bg:#f6f7f9;--card:#fff;--line:#dfe3e8;--ink:#1b1f24;--mut:#5c6672;
         --accent:#00693e;--warn:#a34a00;--bad:#b3261e;--ok:#1b6e2f}
@@ -69,28 +73,42 @@
   .muted{color:var(--mut);font-size:13px}
   a{color:var(--accent)}
   h2{font-size:15px;margin:0 0 10px}
+  header nav{display:flex;gap:14px;align-items:center;margin-left:auto;flex-wrap:wrap}
+  header nav a{color:#fff;text-decoration:none;font-size:14px;opacity:.92}
+  header nav a:hover{opacity:1;text-decoration:underline}
+  .review{border:1px solid var(--line);border-radius:9px;padding:10px;margin:10px 0;background:#fbfcfd}
+  .review img{max-width:100%;max-height:260px;border:1px solid var(--line);border-radius:6px;cursor:zoom-in;display:block;margin:6px 0}
+  .review table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .review td{border-top:1px solid var(--line);padding:3px 4px;vertical-align:top}
+  .review td:first-child{color:var(--mut);width:38%}
+  #live{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:2000;display:none;
+        align-items:center;justify-content:center;flex-direction:column;gap:8px}
+  #live .bar2{display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:#fff;
+        padding:8px 10px;border-radius:9px;max-width:96vw}
+  #live img{max-width:96vw;max-height:78vh;background:#fff;cursor:crosshair;border-radius:6px}
   #toast{position:fixed;right:18px;bottom:18px;background:#1b1f24;color:#fff;padding:11px 15px;
-         border-radius:8px;max-width:420px;display:none;font-size:14px;white-space:pre-wrap;z-index:9}
+         border-radius:8px;max-width:420px;display:none;font-size:14px;white-space:pre-wrap;z-index:2100}
 </style>
 </head>
 <body>
 <header>
   <h1>NNC Reporter</h1>
-  <select id="who" onchange="pickProfile(this)" title="Whose reports, logins and map"
-    style="font-size:13px;padding:4px 8px"></select>
-  <button style="font-size:13px;padding:4px 9px" onclick="editProfile()"
-    title="Name, contact details and council sign-in for this profile">Edit profile</button>
+  <span class="pill" id="s-who" title="Signed in as"></span>
   <span class="pill" id="s-new">0 to submit</span>
   <span class="pill" id="s-sub">0 submitted</span>
   <span class="pill" id="s-ai">AI —</span>
   <span class="pill" id="s-w3w">W3W —</span>
-  <span class="pill" id="s-map" title="Mapbox token for the interactive maps">Mapbox —</span>
-  <span class="pill" id="s-busy" style="display:none">browser open</span>
+  <span class="pill" id="s-busy" style="display:none">submission run open</span>
+  <nav>
+    <a href="/map" title="Everyone's submitted reports, with wards and town councils">Shared map</a>
+    <a href="/summary" title="Reports by ward, town council, category and month">Summary</a>
+    <a href="/admin" id="nav-admin" hidden>Admin</a>
+    <a href="/account" title="Your details for the council forms, password and two-factor sign-in">Account</a>
+    <a href="#" onclick="signOut();return false">Sign out</a>
+  </nav>
 </header>
 
 <main>
-<div id="profilePage" class="card" style="display:none;max-width:760px"></div>
-
 <div id="mainPage">
 <div class="bar">
   <button class="primary" onclick="fileInput.click()">Add photos…</button>
@@ -99,20 +117,15 @@
     New report without a photo…</button>
   <a id="mymaplink" href="#" target="_blank" hidden><button>Open Google My Map</button></a>
   <button onclick="window.open('/api/webmap')"
-    title="This profile's submissions and the My Map's pins on a live Mapbox map — ward borders, area statistics, clustered, colour-coded, filterable">
-    Interactive map</button>
+    title="Your own reports and My Map pins on a live Mapbox map — wards, town councils, area statistics, clustered, colour-coded, filterable">
+    My interactive map</button>
   <button onclick="window.open('/api/dashboard')"
     title="Where the council has got to with everything reported - what is still live, what has passed the 90-day promise, and what the council has never answered">
     Reporting dashboard</button>
   <button onclick="importMyMap()"
-    title="Fetch the Google My Map and merge its pins into the interactive map (pins the tool exported are recognised, not doubled)">
+    title="Fetch your Google My Map (set on your account page) and merge its pins into your interactive map">
     Merge My Map pins</button>
-  <button onclick="exportWebmaps()"
-    title="Write a self-contained interactive map HTML file for every profile, next to each profile's KML">
-    Write interactive maps</button>
-  <button onclick="refreshCats()">Refresh council categories</button>
   <button class="danger" onclick="removeAll()">Remove all</button>
-  <span class="muted" id="mapfolder"></span>
 </div>
 
 <div class="row">
@@ -198,36 +211,54 @@
       <div id="map"></div>
     </div>
     <div class="card">
-      <h2 style="display:flex;justify-content:space-between;align-items:center">Browser session
+      <h2 style="display:flex;justify-content:space-between;align-items:center">Submitting
+        <span><button style="font-size:13px;padding:3px 9px;display:none" id="cancelRun"
+          onclick="cancelRun()" title="Close every form in this run without submitting">Cancel run</button>
         <button style="font-size:13px;padding:3px 9px" onclick="copyLog(this)"
-          title="Copy this log, to send on when something goes wrong">Copy</button>
+          title="Copy this log, to send on when something goes wrong">Copy log</button></span>
       </h2>
-      <pre id="log">Nothing running.
-
-Tick the reports you want, then "Prefill &amp; submit selected". One browser opens
-with a tab per report, each filled in and stopped at its Submit button. Submit them
-in any order - each one is noticed and its reference recorded.</pre>
+      <div id="review"></div>
+      <pre id="log">Nothing running.</pre>
     </div>
-    <div class="card"><h2>Adding pins to the Google map</h2>
+    <div class="card"><h2>Adding pins to your Google map</h2>
       <ol class="muted" style="margin:0;padding-left:20px">
         <li>On the <b>Submitted</b> tab, tick the reports you want.</li>
         <li>Click <b>Write map layer from selected</b> — they move to <b>On the map</b>.</li>
-        <li>In My Maps: <b>Add layer → Import</b>, choose <code>NNC_Reports.kml</code>.</li>
+        <li><a href="/api/export/kml">Download <code>NNC_Reports.kml</code></a>, then in My Maps:
+          <b>Add layer → Import</b> and choose it.</li>
         <li>Next time you export, the file is replaced, so anything currently
             <b>On the map</b> moves to <b>Completed</b> — it is already in My Maps as
             its own layer.</li>
       </ol>
       <p class="muted" style="margin:10px 0 0"><b>Photos.</b> My Maps can only show an
       image it can fetch from the web, so pins carry the council's published photo
-      where the tool captured its address — those appear automatically. Copies of all
-      the photos are also written to <code>NNC_Reports_photos</code>, named to match
-      each pin, for attaching by hand to any that have no published URL.</p>
+      where the tool captured its address — those appear automatically. The
+      <a href="/api/export/photos.zip">photos zip</a> holds copies named to match each pin,
+      for attaching by hand to any that have no published URL.</p>
+      <p class="muted" style="margin:10px 0 0">Everyone's submitted reports are also on the
+      <a href="/map">shared map</a>, with wards and town councils.</p>
     </div>
   </div>
 </div>
 </div><!-- /mainPage -->
 </main>
 <div id="toast"></div>
+<div id="live">
+  <div class="bar2">
+    <b id="live-title">Live view</b>
+    <span class="muted">Click on the form to click it; type below to type into the focused box.</span>
+    <input type="text" id="live-text" placeholder="text to type" style="width:200px">
+    <button onclick="liveType()">Type</button>
+    <button onclick="liveKey('Tab')">Tab</button>
+    <button onclick="liveKey('Enter')">Enter</button>
+    <button onclick="liveKey('Backspace')">⌫</button>
+    <button onclick="liveScroll(-500)">▲ Scroll</button>
+    <button onclick="liveScroll(500)">▼ Scroll</button>
+    <button class="primary" id="live-submit" onclick="approve(LIVE_ID, true)">Submit to council</button>
+    <button onclick="closeLive()">Close</button>
+  </div>
+  <img id="live-img" alt="The form, live">
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -237,6 +268,8 @@ const TABS = ['todo', 'submitted', 'mapped', 'completed'];
 const SEL = {todo: new Set(), submitted: new Set(), mapped: new Set(),
              completed: new Set()};
 let CENTRE = {lat: 52.4914, lon: -0.6923, zoom: 13};   // Corby until config says otherwise
+let MODE = 'server';      // 'server': forms are filled on the server and you approve each one
+let RUN = {active: false, reports: {}};
 
 const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -254,159 +287,31 @@ const todoList = () => listFor('todo');
 const shown = () => listFor(TAB);
 
 async function load(){
-  const s = await (await fetch('/api/state')).json();
+  const res = await fetch('/api/state');
+  if (!res.ok) return;
+  const s = await res.json();
   CATS = s.categories; REPORTS = s.reports; UPDATES = s.update_counts || {};
   if (s.config.map) CENTRE = s.config.map;
+  MODE = s.config.submit_mode || 'server';
+  $('#s-who').textContent = s.user.name || s.user.email;
+  $('#nav-admin').hidden = s.user.role !== 'admin';
   $('#s-ai').textContent  = 'AI ' + (s.config.classify_on ? 'on' : 'off');
   $('#s-w3w').textContent = 'W3W ' + (s.config.w3w_on ? 'on' : 'off');
-  $('#s-map').textContent = 'Mapbox ' + (s.config.mapbox_on ? 'on' : 'off');
-  $('#mapfolder').textContent = 'Map files go to: ' + s.config.map_folder
-    + (s.config.map_file ? ' → ' + s.config.map_file : '');
   const mm = $('#mymaplink');
   mm.hidden = !s.my_map_url;
   if (s.my_map_url) mm.href = s.my_map_url;
-  showProfiles(s.profiles || [], s.profile);
+  if (!s.config.reporter.full_name || !s.config.reporter.email)
+    toast('Add your name and email on your Account page - the council forms need them.', 9000);
+  $('#log').textContent = MODE === 'server'
+    ? 'Nothing running.\n\nTick the reports you want, then "Prefill selected for review". '
+      + 'The server fills in each council form and stops at its Submit button. You then see '
+      + 'each form here - a picture and every value in it - and nothing is sent until you '
+      + 'press "Submit to council" for that report.'
+    : 'Nothing running.\n\nTick the reports you want, then "Prefill & submit selected". '
+      + 'One browser opens with a tab per report, each filled in and stopped at its Submit '
+      + 'button. Submit them in any order - each one is noticed and its reference recorded.';
   prune(); render();
-}
-
-// ---- profiles: one person's reports, logins and map layer at a time --------
-function showProfiles(list, active){
-  const sel = $('#who');
-  sel.innerHTML = list.map(p =>
-      `<option value="${esc(p.name)}"${p.name === active ? ' selected' : ''}>${esc(p.label)}</option>`
-    ).join('') + '<option value="+">New profile…</option>';
-}
-
-async function pickProfile(sel){
-  const name = sel.value;
-  closeProfile();
-  if (name === '+') return newProfile();
-  const res = await fetch('/api/profile', {method: 'POST',
-    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
-  if (!res.ok){ toast('Could not switch: ' + (await res.text())); await load(); return; }
-  SEL.todo.clear(); SEL.submitted.clear(); SEL.mapped.clear(); SEL.completed.clear();
-  await load();
-  toast('Now working as ' + (sel.options[sel.selectedIndex] || {}).text
-        + '. Their reports, logins and map file only.');
-}
-
-// ---- the profile editor ---------------------------------------------------
-// Everything the council forms are filled in with, on one page. Blank is fine:
-// a blank field is simply one the walker will leave for you to type.
-const PROFILE_FIELDS = [
-  {group: 'Who is reporting', fields: [
-    ['full_name', 'Full name', 'text', 'As the council should see it'],
-    ['email', 'Email address', 'email', 'Where the council sends the reference'],
-    ['phone', 'Phone number', 'text', 'Optional'],
-    ['address_line', 'Address, first line', 'text', 'Your own address, for the forms that ask'],
-    ['address_postcode', 'Postcode', 'text', ''],
-    ['show_name_publicly', 'Show my name publicly on FixMyStreet', 'check', ''],
-  ]},
-  {group: 'Highways sign-in', fields: [
-    ['highways_email', 'Sign-in email', 'email', 'For highways.northnorthants.gov.uk'],
-    ['highways_password', 'Password', 'password', 'Kept in config.json on this computer'],
-    ['highways_enabled', 'Sign in automatically', 'check', ''],
-  ]},
-  {group: 'Map layer', fields: [
-    ['map_folder', 'Folder for the map files', 'text', 'Relative to the app folder, or a full path'],
-    ['kml_filename', 'KML file', 'text', 'What you import into Google My Maps'],
-    ['csv_filename', 'CSV file', 'text', ''],
-  ]},
-];
-
-function profileValue(p, key){
-  if (key.startsWith('highways_')) return p.highways_login[key.slice(9)];
-  if (['map_folder', 'kml_filename', 'csv_filename'].includes(key)) return p.export[key];
-  return p.reporter[key];
-}
-
-async function editProfile(name){
-  name = name || $('#who').value;
-  if (name === '+') return;
-  const res = await fetch('/api/profiles/' + encodeURIComponent(name));
-  if (!res.ok) return toast('Could not open that profile: ' + (await res.text()));
-  const p = await res.json();
-  const row = ([key, label, type, hint]) => {
-    const v = profileValue(p, key);
-    if (type === 'check')
-      return `<label style="display:flex;gap:8px;align-items:center;margin:8px 0">
-        <input type="checkbox" id="pf-${key}"${v ? ' checked' : ''}> ${label}</label>`;
-    return `<label style="display:block;margin:10px 0">
-      <div style="font-size:13px;margin-bottom:3px">${label}</div>
-      <input type="${type}" id="pf-${key}" style="width:100%" value="${esc(v || '')}">
-      ${hint ? `<div class="muted" style="font-size:12px;margin-top:2px">${hint}</div>` : ''}
-    </label>`;
-  };
-  $('#profilePage').innerHTML = `
-    <h2 style="display:flex;justify-content:space-between;align-items:center">
-      <span>Editing “${esc(p.reporter.full_name || p.name)}”${p.is_main ? ' — your main profile' : ''}</span>
-      <span><button onclick="closeProfile()">Cancel</button>
-            <button class="primary" onclick="saveProfile('${esc(p.name)}')">Save</button></span>
-    </h2>
-    <div class="muted" style="margin-bottom:10px">
-      ${p.report_count} report${p.report_count === 1 ? '' : 's'} in this profile ·
-      kept in <code>${esc(p.data_folder)}</code>
-    </div>
-    ${p.overridden.length ? `<div class="flags">⚠ ${esc(p.overridden.join(' and '))}
-      ${p.overridden.length > 1 ? 'are' : 'is'} set outside this folder
-      (~/.nnc-reporter/keys.json or an environment variable), and that wins over
-      what you type here.</div>` : ''}
-    ${PROFILE_FIELDS.map(g => `<h2 style="margin-top:16px">${g.group}</h2>
-      ${g.fields.map(row).join('')}`).join('')}
-    <div class="acts" style="margin-top:16px">
-      <button class="primary" onclick="saveProfile('${esc(p.name)}')">Save</button>
-      <button onclick="closeProfile()">Cancel</button>
-      ${p.is_main ? '' : `<button class="danger" onclick="dropProfile('${esc(p.name)}')"
-        title="Removes the profile. Its reports and photos stay on disk.">Remove this profile</button>`}
-    </div>`;
-  $('#profilePage').style.display = '';
-  $('#mainPage').style.display = 'none';
-  window.scrollTo(0, 0);
-}
-
-function closeProfile(){
-  $('#profilePage').style.display = 'none';
-  $('#mainPage').style.display = '';
-}
-
-async function saveProfile(name){
-  const body = {};
-  PROFILE_FIELDS.forEach(g => g.fields.forEach(([key, , type]) => {
-    const el = $('#pf-' + key);
-    if (el) body[key] = type === 'check' ? el.checked : el.value.trim();
-  }));
-  const res = await fetch('/api/profiles/' + encodeURIComponent(name), {method: 'PATCH',
-    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-  if (!res.ok) return toast('Could not save: ' + (await res.text()));
-  closeProfile();
-  await load();
-  toast('Saved. New reports will use these details.');
-}
-
-async function dropProfile(name){
-  if (!confirm(`Remove the profile "${name}"?\n\nIts reports and photos stay on disk, `
-      + `so you can add the profile again later and they will still be there.`)) return;
-  const res = await fetch('/api/profiles/' + encodeURIComponent(name), {method: 'DELETE'});
-  if (!res.ok) return toast('Could not remove: ' + (await res.text()));
-  closeProfile();
-  await load();
-  toast((await res.json()).note);
-}
-
-async function newProfile(){
-  const full_name = prompt('Name of the person reporting (as the council should see it)');
-  if (!full_name){ await load(); return; }
-  const res = await fetch('/api/profiles', {method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name: full_name, full_name})});
-  if (!res.ok){ toast('Could not create: ' + (await res.text())); await load(); return; }
-  const d = await res.json();
-  await fetch('/api/profile', {method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({name: d.created})});
-  await load();
-  toast(`Created "${full_name}" and switched to it — now fill in the rest.`);
-  editProfile(d.created);          // straight into the editor for the details
+  pollLog(true);
 }
 
 function prune(){   // drop selections for reports that moved on
@@ -472,10 +377,10 @@ function renderBulk(){
     const noCat = rows.filter(r => set.has(r.id) && !r.category).length;
     $('#bulk').innerHTML = `<div class="bulk">${selectAllBox}
       <button class="primary" ${n && !BUSY ? '' : 'disabled'} onclick="submitSelected()">
-        Prefill &amp; submit selected${n ? ' (' + n + ')' : ''}</button>
+        ${MODE === 'server' ? 'Prefill selected for review' : 'Prefill &amp; submit selected'}${n ? ' (' + n + ')' : ''}</button>
       ${noCat ? `<span class="muted" style="color:var(--warn)">${noCat} of those
          has no category yet — pick one first</span>` : ''}
-      ${BUSY ? '<span class="muted">a browser session is already open</span>' : ''}
+      ${BUSY ? '<span class="muted">a submission run is open - see "Submitting" on the right</span>' : ''}
     </div>`;
   } else if (TAB === 'submitted'){
     $('#bulk').innerHTML = `<div class="bulk">${selectAllBox}
@@ -713,7 +618,7 @@ function cardTodo(r, set){
   const when = (r.taken_at || '').replace('T', ' ').slice(0, 16);
   const conf = r.confidence ? ` · AI ${Math.round(r.confidence * 100)}%` : '';
   const flags = [r.warnings, r.notes].filter(Boolean).join(' · ');
-  const tag = r.status === 'awaiting' ? '<span class="tag wait">waiting for your Submit</span>'
+  const tag = r.status === 'awaiting' ? `<span class="tag wait">${MODE === 'server' ? 'waiting for your approval' : 'waiting for your Submit'}</span>`
             : r.status === 'ready' ? '<span class="tag">ready to submit</span>'
             : `<span class="tag">${esc(r.status)}</span>`;
   return `<div class="item" id="r${r.id}">
@@ -734,7 +639,7 @@ function cardTodo(r, set){
         onchange="save(${r.id},{detail:this.value})">${esc(r.detail)}</textarea>
       <div class="acts">
         <button class="primary" ${BUSY ? 'disabled' : ''}
-          onclick="submitOne(${r.id})">Prefill &amp; submit…</button>
+          onclick="submitOne(${r.id})">${MODE === 'server' ? 'Prefill for review…' : 'Prefill &amp; submit…'}</button>
         <select onchange="save(${r.id},{service:this.value})" title="Which council form">
           ${SERVICES.map(s => `<option value="${s.id}"${r.service === s.id ? ' selected' : ''}>${s.label}</option>`).join('')}
         </select>
@@ -884,8 +789,7 @@ function drawMap(){
   const pts = shown().filter(r => r.lat != null);
   if (!MAP){
     MAP = L.map('map').setView([CENTRE.lat, CENTRE.lon], CENTRE.zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(MAP);
+    baseTiles();
     MARKERS = L.layerGroup().addTo(MAP);
     // With the manual-report box open, a click on the map IS the location.
     MAP.on('click', e => {
@@ -902,6 +806,22 @@ function drawMap(){
 }
 
 function recentre(){ if (MAP) MAP.setView([CENTRE.lat, CENTRE.lon], CENTRE.zoom); }
+
+// Mapbox streets when the app can hand out a (short-lived) token, OpenStreetMap
+// otherwise. The token is renewed before it lapses.
+let TILES = null;
+async function baseTiles(){
+  let tok = null;
+  try { tok = await (await fetch('/api/mapbox/token')).json(); } catch (e) {}
+  const url = tok && tok.token
+    ? 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/{z}/{x}/{y}@2x?access_token=' + tok.token
+    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const opts = tok && tok.token
+    ? {tileSize: 512, zoomOffset: -1, maxZoom: 20, attribution: '© Mapbox © OpenStreetMap'}
+    : {maxZoom: 19, attribution: '© OpenStreetMap'};
+  if (TILES) TILES.setUrl(url); else TILES = L.tileLayer(url, opts).addTo(MAP);
+  if (tok && tok.expires) setTimeout(baseTiles, Math.max(60, tok.expires - Date.now() / 1000 - 600) * 1000);
+}
 
 // ---- summary of submitted reports: reference, street, quick description ----
 function summaryLines(rows){
@@ -1021,7 +941,7 @@ async function submitSelected(){
   const noCat = REPORTS.filter(r => ids.includes(r.id) && !r.category);
   if (noCat.length) return toast('Pick a category first for #'
       + noCat.map(r => r.id).join(', #'));
-  if (ids.length > 6 && !confirm(`This opens ${ids.length} browser tabs at once, all `
+  if (MODE !== 'server' && ids.length > 6 && !confirm(`This opens ${ids.length} browser tabs at once, all `
       + `waiting for you to press Submit. Carry on?`)) return;
   await startRun('/api/submit', {ids}, ids.length);
 }
@@ -1030,25 +950,122 @@ async function startRun(url, body, n){
   const res = await fetch(url, {method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: body ? JSON.stringify(body) : undefined});
-  if (!res.ok){ toast('Cannot start: ' + (await res.text())); return; }
-  $('#log').textContent = `Opening browser for ${n} report(s)…`;
+  if (!res.ok){ toast('Cannot start: ' + await apiError(res)); return; }
+  $('#log').textContent = MODE === 'server'
+    ? `Filling in ${n} council form(s) on the server - each takes up to a minute or two…`
+    : `Opening browser for ${n} report(s)…`;
   BUSY = true; stats(); renderBulk();
   clearInterval(POLL);
   POLL = setInterval(pollLog, 1500);
 }
 
-async function pollLog(){
-  const d = await (await fetch('/api/log')).json();
-  $('#log').textContent = `[${d.log.state}]\n` + (d.log.lines || []).join('\n');
-  $('#log').scrollTop = 1e6;
-  REPORTS = d.reports; BUSY = d.busy;
-  prune(); render();
-  if (!d.busy){
+async function pollLog(quiet){
+  const res = await fetch('/api/log');
+  if (!res.ok) return;
+  const d = await res.json();
+  if (!quiet || d.busy) {
+    $('#log').textContent = `[${d.log.state}]\n` + (d.log.lines || []).join('\n');
+    $('#log').scrollTop = 1e6;
+  }
+  const wasBusy = BUSY;
+  REPORTS = d.reports; BUSY = d.busy; RUN = d.run || {active: false, reports: {}};
+  prune(); render(); renderReview();
+  if (d.busy && !POLL) POLL = setInterval(pollLog, 1500);
+  if (!d.busy && POLL){
     clearInterval(POLL); POLL = null;
     const done = (d.log.lines || []).filter(l => l.includes('confirmed submitted')).length;
-    if (done) toast(`${done} report(s) confirmed submitted.`);
+    if (done && wasBusy) toast(`${done} report(s) confirmed submitted.`);
   }
 }
+
+// ---- server-mode review: see the filled form, then decide -------------------
+let REVIEW_SIG = '';
+function renderReview(){
+  const box = $('#review');
+  $('#cancelRun').style.display = RUN.active ? '' : 'none';
+  if (!RUN.active){ box.innerHTML = ''; REVIEW_SIG = ''; if (LIVE_ID !== null) closeLive(); return; }
+  const ids = Object.keys(RUN.reports);
+  const left = RUN.seconds_left != null
+    ? ` · forms close in ${Math.max(1, Math.round(RUN.seconds_left / 60))} min if left` : '';
+  // Only rebuild when something changed, so an open list of fields stays open.
+  const sig = JSON.stringify(RUN.reports);
+  if (sig === REVIEW_SIG && $('#review-left')){ $('#review-left').textContent = left; return; }
+  REVIEW_SIG = sig;
+  const open = new Set([...box.querySelectorAll('details[open]')].map(d => d.dataset.id));
+  box.innerHTML = `<p class="muted" style="margin:0 0 6px">${ids.length} form(s) in this run<span id="review-left">${left}</span>.
+    Check each one; nothing is sent until you press <b>Submit to council</b>.</p>`
+    + ids.map(id => {
+      const r = RUN.reports[id];
+      const state = r.submitted ? '<span class="tag ok">submitted</span>'
+        : r.pressed ? '<span class="tag wait">submitting…</span>'
+        : r.reached ? '<span class="tag">ready for you to check</span>'
+        : '<span class="tag err">needs finishing - use the live view</span>';
+      const fields = (r.fields || []).map(f =>
+        `<tr><td>${esc(f.label || '')}</td><td>${esc(f.value)}</td></tr>`).join('');
+      return `<div class="review"><b>#${id}</b> ${esc(r.title || '')} ${state}
+        ${r.has_preview ? `<img src="/api/run/${id}/preview?t=${Math.floor(Date.now() / 60000)}" alt="Preview of the filled form"
+          onclick="openLive(${id})" title="Open the live view">` : ''}
+        ${fields ? `<details data-id="${id}"${open.has(String(id)) ? ' open' : ''}><summary class="muted">What is in the form (${(r.fields || []).length} fields)</summary>
+          <table>${fields}</table></details>` : ''}
+        ${r.submitted ? '' : `<div class="acts">
+          <button class="primary" ${r.pressed ? 'disabled' : ''} onclick="approve(${id})">Submit to council</button>
+          <button onclick="openLive(${id})">Live view</button>
+          <button onclick="cancelOne(${id})">Don't send</button></div>`}</div>`;
+    }).join('');
+}
+
+async function approve(id, fromLive){
+  const r = (RUN.reports || {})[id] || {};
+  if (!r.reached && !fromLive && !confirm('This form did not reach its Submit button by itself. '
+      + 'Only submit it if you have finished it in the live view. Carry on?')) return;
+  if (!confirm(`Send report #${id} to North Northamptonshire Council now?`)) return;
+  const res = await fetch(`/api/run/${id}/submit`, {method: 'POST'});
+  if (!res.ok) return toast('Could not submit: ' + await apiError(res));
+  toast(`Submitting #${id} - its reference will appear when the council confirms it.`);
+  pollLog();
+}
+async function cancelOne(id){
+  if (!confirm(`Close the form for #${id} without sending it?`)) return;
+  await fetch(`/api/run/${id}/cancel`, {method: 'POST'}); pollLog();
+}
+async function cancelRun(){
+  if (!confirm('Close every form in this run without sending any more?')) return;
+  await fetch('/api/run/cancel', {method: 'POST'}); pollLog();
+}
+
+// ---- the live view: the server's browser, clicked and typed into from here ----
+let LIVE_ID = null, LIVE_T = null;
+function openLive(id){
+  LIVE_ID = id; $('#live').style.display = 'flex'; $('#live-img').removeAttribute('src');
+  $('#live-title').textContent = `Live view - #${id}`;
+  refreshLive(); clearInterval(LIVE_T); LIVE_T = setInterval(refreshLive, 900);
+}
+function closeLive(){ LIVE_ID = null; clearInterval(LIVE_T); $('#live').style.display = 'none'; }
+function refreshLive(){
+  if (LIVE_ID === null) return;
+  const img = new Image();
+  img.onload = () => { $('#live-img').src = img.src; };
+  img.src = `/api/run/${LIVE_ID}/frame?t=${Date.now()}`;
+}
+async function liveSend(body){
+  if (LIVE_ID === null) return;
+  const res = await fetch(`/api/run/${LIVE_ID}/input`, {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res.ok) toast(await apiError(res));
+  setTimeout(refreshLive, 350);
+}
+$('#live-img').addEventListener('click', e => {
+  const img = e.target, box = img.getBoundingClientRect();
+  const vp = RUN.viewport || {width: 1360, height: 950};
+  liveSend({kind: 'click', x: (e.clientX - box.left) * vp.width / box.width,
+            y: (e.clientY - box.top) * vp.height / box.height});
+});
+$('#live-img').addEventListener('wheel', e => { e.preventDefault(); liveScroll(e.deltaY); }, {passive: false});
+function liveType(){ const t = $('#live-text'); if (t.value) liveSend({kind: 'type', text: t.value}); t.value = ''; }
+function liveKey(key){ liveSend({kind: 'key', key}); }
+function liveScroll(dy){ liveSend({kind: 'scroll', dy}); }
+$('#live-text').addEventListener('keydown', e => { if (e.key === 'Enter') liveType(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && LIVE_ID !== null) closeLive(); });
 
 async function exportSelected(){
   const ids = [...SEL[TAB]];
@@ -1058,19 +1075,22 @@ async function exportSelected(){
       `This replaces NNC_Reports.kml with ${ids.length} pin(s).\n\n`
       + `${mapped.length} report(s) currently "on the map" will move to Completed — `
       + `import the current file into My Maps first if you haven't yet.`)) return;
-  const d = await (await fetch('/api/export', {method: 'POST',
-    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})})).json();
+  const res = await fetch('/api/export', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})});
+  if (!res.ok) return toast('Could not write the layer: ' + await apiError(res));
+  const d = await res.json();
   const noUrl = d.pins - (d.photos_with_public_url || 0);
   const moved = (d.moved_to_completed || []).length;
   await load();
   setTab('mapped');
-  toast(`Wrote ${d.pins} pin(s):\n${d.kml}\n${d.csv}\n`
-    + `${d.photos_copied} photo(s) copied to ${d.photo_folder}\n\n`
+  toast(`Wrote ${d.pins} pin(s) - downloading NNC_Reports.kml now.\n`
     + `${d.photos_with_public_url || 0} pin(s) show their photo automatically.`
-    + (noUrl > 0 ? `\n${noUrl} have no published photo URL — attach the copied file `
-                 + `to those pins by hand if you want an image.` : '')
+    + (noUrl > 0 ? `\n${noUrl} have no published photo URL — the photos zip `
+                 + `(link on the right) has copies to attach by hand.` : '')
     + (moved ? `\n\n${moved} earlier report(s) moved to Completed.` : '')
-    + `\n\nNow Add layer → Import in My Maps.`, 18000);
+    + `\n\nNow Add layer → Import in My Maps.`, 15000);
+  const a = document.createElement('a'); a.href = d.kml; a.download = 'NNC_Reports.kml';
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 async function importMyMap(){
@@ -1086,25 +1106,6 @@ async function importMyMap(){
         ? `\nSame reference on more than one pin (both kept): ${d.duplicate_references.join(', ')}` : '')
     + (d.photos_to_cache ? `\n${d.photos_to_cache} photo(s) caching in the background.` : '')
     + '\n\nOpen the interactive map to see them.', 12000);
-}
-
-async function exportWebmaps(){
-  const res = await fetch('/api/webmap/export', {method: 'POST'});
-  if (!res.ok) return toast('Could not write the maps: ' + res.status);
-  const d = await res.json();
-  const lines = d.written.map(w =>
-    `${w.profile}: ${w.pins} pin${w.pins === 1 ? '' : 's'} → ${w.file}`);
-  if (d.empty.length)
-    lines.push(`(no reports yet: ${d.empty.map(e => e.profile).join(', ')})`);
-  if (d.token_problem) lines.push('⚠ ' + d.token_problem);
-  toast('Interactive maps written.\n' + lines.join('\n'), 9000);
-}
-
-async function refreshCats(){
-  const d = await (await fetch('/api/categories/refresh', {method: 'POST'})).json();
-  toast(d.ok ? `Loaded ${d.count} live categories from the council site.`
-             : 'Could not refresh: ' + d.error);
-  if (d.ok) load();
 }
 
 const fileInput = $('#fileInput');
@@ -1148,8 +1149,8 @@ async function upload(files){
 }
 
 load();
-setInterval(() => { if (!POLL) fetch('/api/log').then(r => r.json()).then(d => {
-  if (d.busy !== BUSY){ BUSY = d.busy; stats(); renderBulk(); }
+setInterval(() => { if (!POLL) fetch('/api/log').then(r => r.ok ? r.json() : null).then(d => {
+  if (d && d.busy !== BUSY){ pollLog(); }
 }).catch(() => {}); }, 5000);
 </script>
 </body>

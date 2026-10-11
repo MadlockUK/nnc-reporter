@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Your account – NNC Reporter</title>
+<link rel="icon" href="/assets/icon.svg">
+<link rel="stylesheet" href="/assets/common.css">
+<script src="/assets/common.js"></script>
+</head>
+<body>
+<!--NAV-->
+<main class="wrap" id="main"><p class="muted">Loading…</p></main>
+<script>
+let A = null;
+const $ = id => document.getElementById(id);
+
+function say(id, kind, text) { const el = $(id); el.className = 'msg ' + kind; el.textContent = text; el.hidden = !text; }
+
+async function load() {
+  const res = await fetch('/api/account');
+  if (!res.ok) { $('main').innerHTML = '<div class="msg err">' + esc(await apiError(res)) + '</div>'; return; }
+  A = await res.json();
+  const u = A.user;
+  $('nav-admin').hidden = u.role !== 'admin';
+  $('nav-app').hidden = u.role === 'viewer';
+  if (A.stage === 'enrol') return renderEnrol();
+  render();
+}
+
+function field(key, type) {
+  const v = A.profile[key];
+  const label = A.fields[key];
+  if (type === 'check')
+    return `<label style="display:flex;gap:8px;align-items:center;margin:10px 0">
+      <input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}> ${esc(label)}</label>`;
+  return `<label class="f"><span>${esc(label)}</span>
+    <input type="${type}" data-k="${key}" value="${esc(v || '')}"></label>`;
+}
+
+function render() {
+  const u = A.user;
+  const roleNote = {admin: 'Admin – manages accounts and settings',
+    editor: 'Editor – reports issues and sees the shared map',
+    viewer: 'Viewer – sees the shared map and summaries'}[u.role];
+  $('main').innerHTML = `
+  <div class="card"><h2>${esc(u.name || u.email)}</h2>
+    <div class="muted">${esc(u.email)} · ${esc(roleNote)}</div></div>
+
+  ${u.role !== 'viewer' ? `
+  <div class="card"><h2>Your details for the council's forms</h2>
+    <p class="muted">The council forms ask who is reporting. These are filled in for you;
+      the council emails its reference and updates to the email address below.</p>
+    <div id="m-prof" class="msg" hidden></div>
+    <div class="row2">${field('full_name', 'text')}${field('council_email', 'email')}</div>
+    <div class="row2">${field('phone', 'tel')}${field('address_postcode', 'text')}</div>
+    ${field('address_line', 'text')}
+    <p class="muted" style="margin:0">The fly-tipping form asks for your own address: enough of
+      the first line for it to be picked from the postcode search.</p>
+    ${field('show_name_publicly', 'check')}
+    ${field('share_name', 'check')}
+    <h3>Highways site sign-in</h3>
+    <p class="muted">Optional. Signing in to highways.northnorthants.gov.uk puts your reports
+      under "My reports" there and skips its email confirmation.</p>
+    <div class="row2">${field('highways_email', 'email')}<div></div></div>
+    ${field('highways_enabled', 'check')}
+    <h3>Google My Map</h3>
+    ${field('mymap_mid', 'text')}
+    <div class="acts"><button class="primary" onclick="saveProfile()">Save details</button></div>
+    <h3>Highways site password</h3>
+    <p class="muted">Stored encrypted and never shown again: ${A.highways_password_set
+      ? '<span class="tag ok">a password is saved</span>' : '<span class="tag">none saved</span>'}</p>
+    <div id="m-hw" class="msg" hidden></div>
+    <div class="row2"><label class="f"><span>New highways password</span>
+      <input type="password" id="hwpw" autocomplete="off"></label><div></div></div>
+    <div class="acts"><button onclick="saveHw(false)">Save highways password</button>
+      ${A.highways_password_set ? '<button class="danger" onclick="saveHw(true)">Remove it</button>' : ''}</div>
+  </div>` : `
+  <div class="card"><h2>Your details</h2><div id="m-prof" class="msg" hidden></div>
+    ${field('full_name', 'text')}${field('share_name', 'check')}
+    <div class="acts"><button class="primary" onclick="saveProfile()">Save</button></div></div>`}
+
+  <div class="card"><h2>Password</h2>
+    <div id="m-pw" class="msg" hidden></div>
+    <label class="f"><span>Current password</span><input type="password" id="pw0" autocomplete="current-password"></label>
+    <div class="row2">
+      <label class="f"><span>New password</span><input type="password" id="pw1" autocomplete="new-password"></label>
+      <label class="f"><span>New password again</span><input type="password" id="pw2" autocomplete="new-password"></label>
+    </div>
+    <ul class="rules">${A.rules.map(r => '<li>' + esc(r) + '</li>').join('')}</ul>
+    <div class="acts"><button class="primary" onclick="changePw()">Change password</button></div>
+  </div>
+
+  <div class="card"><h2>Two-factor sign-in</h2><div id="mfa"></div></div>
+
+  <div class="card"><h2>Where you are signed in</h2>
+    <div class="scroll"><table><tr><th>Device</th><th>From</th><th>Signed in</th><th>Last active</th></tr>
+    ${A.sessions.map(s => `<tr><td>${esc(device(s.user_agent))}${s.current ? ' <span class="tag ok">this one</span>' : ''}</td>
+      <td class="mono">${esc(s.ip || '')}</td><td>${when(s.created_at)}</td><td>${when(s.last_seen)}</td></tr>`).join('')}
+    </table></div>
+    <div class="acts"><button onclick="endOthers()">Sign out everywhere else</button></div>
+  </div>
+
+  <div class="card"><h2>Your data</h2>
+    <p class="muted">A copy of everything held for you: your details, your reports and your photos.</p>
+    <div class="acts"><a href="/api/account/export"><button>Download my data (.zip)</button></a>
+      <a href="/privacy">How your data is used</a></div>
+  </div>`;
+  renderMfa();
+}
+
+function device(ua) {
+  ua = ua || '';
+  const b = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox'
+          : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const o = /Windows/.test(ua) ? 'Windows' : /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android'
+          : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  return b + (o ? ' on ' + o : '');
+}
+
+async function saveProfile() {
+  const body = {};
+  document.querySelectorAll('[data-k]').forEach(el => body[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value.trim());
+  const res = await fetch('/api/account/profile', {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!res.ok) return say('m-prof', 'err', await apiError(res));
+  A = await res.json(); render(); say('m-prof', 'ok', 'Saved. New reports use these details.');
+}
+
+async function saveHw(clear) {
+  if (clear && !confirm('Remove the saved highways password?')) return;
+  const res = await fetch('/api/account/highways-password', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: clear ? '' : $('hwpw').value, clear})});
+  if (!res.ok) return say('m-hw', 'err', await apiError(res));
+  await load(); say('m-hw', 'ok', clear ? 'Removed.' : 'Saved.');
+}
+
+async function changePw() {
+  if ($('pw1').value !== $('pw2').value) return say('m-pw', 'err', 'The new passwords do not match.');
+  const res = await fetch('/api/account/password', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({current: $('pw0').value, new: $('pw1').value})});
+  if (!res.ok) return say('m-pw', 'err', await apiError(res));
+  const d = await res.json(); setCsrf(d.csrf);
+  ['pw0', 'pw1', 'pw2'].forEach(i => $(i).value = '');
+  say('m-pw', 'ok', 'Password changed. Any other devices have been signed out.');
+}
+
+async function endOthers() {
+  const res = await fetch('/api/account/sessions/end-others', {method: 'POST'});
+  const d = await res.json(); await load();
+  alert(`Signed out of ${d.ended} other session${d.ended === 1 ? '' : 's'}.`);
+}
+
+// ------------------------------------------------------------ two-factor
+function renderMfa(extra) {
+  const u = A.user;
+  const el = $('mfa');
+  if (u.mfa_enabled) {
+    el.innerHTML = `<p><span class="tag ok">On</span> You are asked for a code from your
+      authenticator app each time you sign in. ${A.recovery_codes_left} recovery code(s) left.</p>
+      <div id="m-mfa" class="msg" hidden></div>
+      <label class="f"><span>Your password (to change these settings)</span><input type="password" id="mpw" autocomplete="current-password"></label>
+      <div class="acts"><button onclick="newCodes()">Make new recovery codes</button>
+      ${u.mfa_required ? '<span class="muted">Required for your account, so it cannot be switched off.</span>'
+        : `<input type="text" id="mcode" placeholder="current code" maxlength="6" style="width:140px">
+           <button class="danger" onclick="mfaOff()">Switch off</button>`}</div>${extra || ''}`;
+  } else {
+    el.innerHTML = `<p><span class="tag ${u.mfa_required ? 'bad' : ''}">Off</span>
+      ${u.mfa_required ? 'Required for your account.' : 'Strongly recommended.'}
+      A code from an app such as Microsoft Authenticator, Google Authenticator or 1Password,
+      as well as your password.</p>
+      <div id="m-mfa" class="msg" hidden></div>
+      ${A.stage === 'enrol' ? '' : `<label class="f"><span>Your password</span><input type="password" id="mpw" autocomplete="current-password"></label>`}
+      <div class="acts"><button class="primary" onclick="mfaSetup()">Set up two-factor sign-in</button></div>
+      <div id="mfa-setup"></div>`;
+  }
+}
+
+async function mfaSetup() {
+  const res = await fetch('/api/account/mfa/setup', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: $('mpw') ? $('mpw').value : ''})});
+  if (!res.ok) return say('m-mfa', 'err', await apiError(res));
+  const d = await res.json();
+  $('mfa-setup').innerHTML = `<h3>1. Scan this with your authenticator app</h3>
+    <img src="${d.qr}" alt="QR code" width="220" height="220" style="background:#fff;border-radius:8px">
+    <p class="muted">Can't scan? Enter this key by hand: <code>${esc(d.secret.replace(/(.{4})/g, '$1 ').trim())}</code></p>
+    <h3>2. Enter the 6-digit code it shows</h3>
+    <div class="acts"><input type="text" id="mcode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:150px">
+      <button class="primary" onclick="mfaEnable()">Turn on</button></div>`;
+}
+
+async function mfaEnable() {
+  const res = await fetch('/api/account/mfa/enable', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code: $('mcode').value})});
+  if (!res.ok) return say('m-mfa', 'err', await apiError(res));
+  const d = await res.json(); setCsrf(d.csrf);
+  const wasEnrol = A.stage === 'enrol';
+  await load();
+  renderMfa(codesHtml(d.recovery_codes, wasEnrol));
+}
+
+function codesHtml(codes, thenContinue) {
+  return `<h3>Your recovery codes</h3><p class="muted">Each works once, instead of a code from
+    your phone. Keep them somewhere safe - they are not shown again.</p>
+    <div class="card codes">${codes.map(esc).join('<br>')}</div>
+    ${thenContinue ? '<div class="acts"><a href="/"><button class="primary">I have saved them – continue</button></a></div>' : ''}`;
+}
+
+async function newCodes() {
+  const res = await fetch('/api/account/mfa/recovery-codes', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: $('mpw').value})});
+  if (!res.ok) return say('m-mfa', 'err', await apiError(res));
+  renderMfa(codesHtml((await res.json()).recovery_codes));
+}
+
+async function mfaOff() {
+  if (!confirm('Switch off two-factor sign-in?')) return;
+  const res = await fetch('/api/account/mfa/disable', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: $('mpw').value, code: $('mcode').value})});
+  if (!res.ok) return say('m-mfa', 'err', await apiError(res));
+  await load();
+}
+
+function renderEnrol() {
+  document.querySelector('.topbar').querySelectorAll('a').forEach(a => { if (!/Sign out/.test(a.textContent)) a.hidden = true; });
+  $('main').innerHTML = `<div class="card"><h2>One more step: two-factor sign-in</h2>
+    <p>Your account needs a code from an authenticator app as well as your password.
+      Set it up now - it takes a minute.</p><div id="mfa"></div></div>`;
+  renderMfa();
+}
+
+load();
+</script>
+</body>
+</html>

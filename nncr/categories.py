@@ -10,7 +10,9 @@ from pathlib import Path
 
 from . import config
 
-CACHE = config.BASE_DIR / "data" / "categories.json"
+def _cache_path() -> Path:
+    """Shared by every user: the council's list is the same for all of them."""
+    return config.shared_dir() / "categories.json"
 
 # (group, category). group == "" means a top-level category with no parent group.
 BUNDLED = [
@@ -143,9 +145,10 @@ def _with_synthetic(cats: list) -> list:
 
 
 def load() -> list:
-    if CACHE.exists():
+    cache = _cache_path()
+    if cache.exists():
         try:
-            data = json.loads(CACHE.read_text(encoding="utf-8"))
+            data = json.loads(cache.read_text(encoding="utf-8"))
             if data.get("categories"):
                 return _with_synthetic(data["categories"])
         except (json.JSONDecodeError, OSError):
@@ -245,8 +248,8 @@ def refresh_from_site(lat: float = config.DEFAULT_CENTRE[0],
         raise RuntimeError("Could not parse any categories from the live site")
 
     cats = _flatten(uniq)
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE.write_text(json.dumps({"categories": cats}, indent=2), encoding="utf-8")
+    cache = _cache_path()
+    cache.write_text(json.dumps({"categories": cats}, indent=2), encoding="utf-8")
     return {"count": len(cats), "categories": cats}
 
 

@@ -315,10 +315,16 @@ def _h(s) -> str:
 
 def build_html(label: str, fc: dict, cfg: dict, live: bool = False,
                areas: list | None = None, ward_fc: dict | None = None,
-               mymap_url: str = "") -> str:
+               mymap_url: str = "", boundaries: list | None = None,
+               token_url: str = "", shared: bool = False) -> str:
     """A single, self-contained HTML page: clustered, colour-coded, filterable,
-    with ward borders and an area-statistics panel."""
-    token, problem = token_for(cfg)
+    with ward borders and an area-statistics panel.
+
+    In the web app (`token_url` set) no token is written into the page: it asks
+    the app for a short-lived one once the person is signed in. `boundaries` adds
+    the council, town council and town council ward layers, fetched from the app.
+    `shared` is the whole group's layer: reporter filter, downloads, summary."""
+    token, problem = token_for(cfg) if not token_url else ("", "")
     lat, lon = config.centre(cfg)
     zoom = int((cfg.get("map") or {}).get("zoom", 13))
     stamp = datetime.now().strftime("%d %b %Y %H:%M")
@@ -338,14 +344,37 @@ def build_html(label: str, fc: dict, cfg: dict, live: bool = False,
         for k, lbl in KIND_LABELS)
 
     js = _JS.replace("__MATCH__", json.dumps(match_expr))
+    head = ('<script src="/assets/common.js"></script>' if live and token_url else "")
+    tools = ""
+    if shared:
+        tools = ('<a href="/summary"><button class="small">Summary tables</button></a> '
+                 '<a href="/api/org/reports.geojson" download><button class="small">'
+                 'GeoJSON</button></a> '
+                 '<a href="/api/org/reports.kml" download><button class="small">KML'
+                 '</button></a> '
+                 '<a href="/api/org/reports.csv" download><button class="small">CSV'
+                 '</button></a>')
+    if live and token_url:
+        tools += ' <a href="/"><button class="small">Back to the app</button></a>'
     return (_HTML.replace("__JS__", js)
+            .replace("__HEAD_EXTRA__", head)
+            .replace("__TOOLS_EXTRA__", tools)
+            .replace("__BOUNDARIES_JSON__", json.dumps(boundaries or []))
+            .replace("__TOKEN_URL_JSON__", json.dumps(token_url or ""))
+            .replace("__SHARED_JSON__", "true" if shared else "false")
+            .replace("__SUBTITLE__", "shared by the group" if shared else "from the tool")
+            .replace("<body>", "<body class=\"%s\">" % " ".join(
+                c for c, on in (("app", bool(token_url)), ("shared", shared)) if on), 1)
             .replace("__TITLE__", _h(label))
             .replace("__VERSION__", MAPBOX_GL_VERSION)
             .replace("__STAMP__", stamp)
             .replace("__N_REPORTS__", str(n_reports))
             .replace("__N_PINS__", str(n_pins))
             .replace("__LEGEND__", legend_rows)
-            .replace("__ATTRIB__", _h(WARDS_ATTRIBUTION))
+            .replace("__ATTRIB__", _h(WARDS_ATTRIBUTION if not boundaries else
+                                      "Boundaries: Office for National Statistics, Open "
+                                      "Government Licence v3.0. Contains OS data © Crown "
+                                      "copyright and database right 2026."))
             .replace("__LIVE_ONLY__", "" if live else "hidden")
             .replace("__DATA_JSON__", json.dumps(fc))
             .replace("__AREAS_JSON__", json.dumps(areas or []))
@@ -394,6 +423,7 @@ _HTML = r"""<!DOCTYPE html>
 <title>NNC Reports — __TITLE__</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v__VERSION__/mapbox-gl.css" rel="stylesheet">
 <script src="https://api.mapbox.com/mapbox-gl-js/v__VERSION__/mapbox-gl.js"></script>
+__HEAD_EXTRA__
 <style>
   :root{--ink:#1b1f24;--muted:#5c6672;--line:#e4e7eb;--panel:#fff;--accent:#1d5fa6;
         --sel:#1d5fa6;--bar:#2b6ca8}
@@ -413,6 +443,8 @@ _HTML = r"""<!DOCTYPE html>
   button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
   button.small{padding:3px 8px;font-size:12px}
   #legend{bottom:26px;left:10px;font-size:12.5px;max-height:calc(100vh - 80px);overflow:auto;width:250px}
+  body.app #legend{max-height:calc(100vh - 200px)}
+  body.shared .mymap-only{display:none!important}
   #legend h4{margin:0 0 6px;font-size:12.5px}
   .row{display:flex;align-items:center;gap:7px;margin:3px 0;cursor:pointer}
   .row input{margin:0}
@@ -446,6 +478,8 @@ _HTML = r"""<!DOCTYPE html>
        border-radius:5px;pointer-events:none;display:none;white-space:nowrap}
   #hint{position:absolute;z-index:3;left:50%;top:12px;transform:translateX(-50%);background:#1b1f24;
         color:#fff;padding:7px 12px;border-radius:8px;font-size:12.5px;display:none;box-shadow:0 1px 8px rgba(0,0,0,.3)}
+  .swatch{width:16px;height:0;border-top:3px solid #000;flex:none}
+  .swatch.dash{border-top-style:dashed}
   .mapboxgl-popup{max-width:320px}
   .mapboxgl-popup-content{font:12.5px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:12px 14px}
   .mapboxgl-popup-content h3{margin:0 0 4px;font-size:13.5px;padding-right:14px}
@@ -474,13 +508,16 @@ _HTML = r"""<!DOCTYPE html>
 <div id="lightbox" onclick="this.style.display='none'"><img alt=""></div>
 <div class="panel" id="head">
   <h1>NNC Reports — __TITLE__</h1>
-  <div class="sub"><span id="n-all">__N_REPORTS__</span> report<span id="n-all-s">s</span> from the tool ·
-    <span id="n-pins">__N_PINS__</span> pins from the My Map · generated __STAMP__</div>
+  <div class="sub"><span id="n-all">__N_REPORTS__</span> report<span id="n-all-s">s</span> __SUBTITLE__ ·
+    <span class="mymap-only"><span id="n-pins">__N_PINS__</span> pins from the My Map ·</span> generated __STAMP__</div>
   <div class="tools">
-    <button class="small __LIVE_ONLY__" onclick="importMyMap()" title="Fetch the Google My Map again and merge any new or changed pins">Refresh My Map pins</button>
+    <button class="small __LIVE_ONLY__ mymap-only" onclick="importMyMap()" title="Fetch the Google My Map again and merge any new or changed pins">Refresh My Map pins</button>
     <button class="small" onclick="toggleShowcase()" title="Hide the controls and lay the statistics out for a screenshot">Showcase</button>
     <a id="mymaplink" href="#" target="_blank" hidden><button class="small">Open My Map</button></a>
+    __TOOLS_EXTRA__
   </div>
+  <div id="who" hidden style="margin-top:8px"><label class="tiny">Reporter
+    <select id="reporter" style="font-size:12.5px;max-width:220px"><option value="">Everyone</option></select></label></div>
 </div>
 <div class="panel" id="legend">
   <h4>Type <span class="tiny">(click to show/hide)</span></h4>
@@ -491,17 +528,19 @@ _HTML = r"""<!DOCTYPE html>
     <label class="row"><input type="checkbox" data-status="submitted" checked> Submitted (<span id="n-submitted">0</span>)</label>
     <label class="row"><input type="checkbox" data-status="mapped" checked> On the map (<span id="n-mapped">0</span>)</label>
     <label class="row"><input type="checkbox" data-status="completed" checked> Completed (<span id="n-completed">0</span>)</label>
-    <h4 style="margin-top:6px">Pins from the My Map <span class="dot ring" style="display:inline-block;vertical-align:-2px;background:#fff"></span></h4>
-    <label class="row"><input type="checkbox" data-status="open" checked> Outstanding issues (<span id="n-open">0</span>)</label>
-    <label class="row"><input type="checkbox" data-status="pin-completed" checked> Completed history (<span id="n-pin-completed">0</span>)</label>
-    <label class="row"><input type="checkbox" data-status="landmark" checked> Landmarks (<span id="n-landmark">0</span>)</label>
+    <h4 style="margin-top:6px" class="mymap-only">Pins from the My Map <span class="dot ring" style="display:inline-block;vertical-align:-2px;background:#fff"></span></h4>
+    <label class="row mymap-only"><input type="checkbox" data-status="open" checked> Outstanding issues (<span id="n-open">0</span>)</label>
+    <label class="row mymap-only"><input type="checkbox" data-status="pin-completed" checked> Completed history (<span id="n-pin-completed">0</span>)</label>
+    <label class="row mymap-only"><input type="checkbox" data-status="landmark" checked> Landmarks (<span id="n-landmark">0</span>)</label>
   </div>
   <div class="sect" id="layers">
     <h4>Boundaries</h4>
-    <label class="row"><input type="checkbox" id="l-wards" checked> NNC ward borders</label>
+    <label class="row"><input type="checkbox" id="l-wards" checked> Unitary wards (2025)</label>
     <label class="row"><input type="checkbox" id="l-wardnames" checked> Ward names</label>
-    <label class="row"><input type="checkbox" id="l-areas" checked> Drawn areas (Exeter Estate)</label>
-    <label class="row"><input type="checkbox" id="l-sketch"> Old hand-drawn Lloyds ward</label>
+    <label class="row"><input type="checkbox" id="l-shade"> Shade wards by reports shown</label>
+    <div id="bnd-rows"></div>
+    <label class="row mymap-only"><input type="checkbox" id="l-areas" checked> Drawn areas (Exeter Estate)</label>
+    <label class="row mymap-only"><input type="checkbox" id="l-sketch"> Old hand-drawn Lloyds ward</label>
     <label class="row"><input type="checkbox" id="l-cluster" checked> Cluster nearby pins</label>
     <div class="tiny" style="margin-top:4px">__ATTRIB__</div>
   </div>
@@ -517,7 +556,7 @@ _HTML = r"""<!DOCTYPE html>
     <input type="text" id="sel-name" placeholder="Area name (shown on the card)">
     <label class="inl">Since <input type="date" id="since"></label>
     <label class="inl">Until <input type="date" id="until"></label>
-    <label class="inl"><input type="checkbox" id="inc-pins" checked> include My Map pins</label>
+    <label class="inl mymap-only"><input type="checkbox" id="inc-pins" checked> include My Map pins</label>
     <label class="inl"><input type="checkbox" id="inc-est" checked> include ≈ dated</label>
     <label class="inl"><input type="checkbox" id="inc-undated" checked> include undated</label>
   </div>
@@ -544,9 +583,12 @@ const TOKEN = __TOKEN_JSON__;
 const PROBLEM = __PROBLEM_JSON__;
 const MYMAP = __MYMAP_JSON__;
 const LIVE = __LIVE_JSON__;
+const BOUNDARIES = __BOUNDARIES_JSON__;
+const TOKEN_URL = __TOKEN_URL_JSON__;
+const SHARED = __SHARED_JSON__;
 const CENTRE = __CENTRE__, ZOOM = __ZOOM__;
-const esc = s => (s ?? '').toString().replace(/[&<>"]/g,
-  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const esc = s => (s ?? '').toString().replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const $ = id => document.getElementById(id);
 if (MYMAP) { $('mymaplink').href = MYMAP; $('mymaplink').hidden = false; }
 
@@ -609,23 +651,51 @@ const wantedKind = () => new Set([...document.querySelectorAll('#legend .kind')]
 // hidden reports inside the cluster counts.
 function filtered() {
   const st = wantedStatus(), kd = wantedKind();
+  const who = $('reporter') ? $('reporter').value : '';
   return {type: 'FeatureCollection', features: DATA.features.filter(f =>
-    st.has(bucketOf(f.properties)) && kd.has(f.properties.kind))};
+    st.has(bucketOf(f.properties)) && kd.has(f.properties.kind)
+    && (!who || f.properties.reporter === who))};
 }
+// The shared layer can be narrowed to one person's reports.
+(function () {
+  const names = [...new Set(DATA.features.map(f => f.properties.reporter).filter(Boolean))].sort();
+  if (!SHARED || names.length < 2) return;
+  $('reporter').insertAdjacentHTML('beforeend', names.map(n => '<option>' + esc(n) + '</option>').join(''));
+  $('who').hidden = false;
+})();
 
 let map = null, mode = '', sel = null, selName = '', drawPts = [], hoverWard = null;
 
 // Guard BEFORE constructing the map - a missing token is otherwise a silent
 // blank canvas with no explanation.
-if (!TOKEN) {
+function showErr(msg) {
   document.body.insertAdjacentHTML('beforeend',
-    '<div id="err"><div><b>The map needs a Mapbox token.</b><br><br>' + esc(PROBLEM) + '</div></div>');
-} else if (typeof mapboxgl === 'undefined') {
+    '<div id="err"><div><b>The map needs a Mapbox token.</b><br><br>' + esc(msg) + '</div></div>');
+}
+// In the web app the page carries no token: it asks the app for a short-lived
+// one (minted from the secret token on the server) and renews it before it lapses.
+async function fetchToken() {
+  const r = await fetch(TOKEN_URL, {credentials: 'same-origin'});
+  if (r.status === 401) { location.href = '/login'; return null; }
+  const d = await r.json();
+  if (!d.token) throw new Error(d.problem || 'no token available');
+  if (d.expires) setTimeout(() => fetchToken().then(t => { if (t) mapboxgl.accessToken = t; })
+    .catch(() => {}), Math.max(60, d.expires - Date.now() / 1000 - 600) * 1000);
+  return d.token;
+}
+if (typeof mapboxgl === 'undefined') {
   document.body.insertAdjacentHTML('beforeend',
     '<div id="err"><div><b>Could not load Mapbox GL.</b><br><br>The map library loads from '
     + 'api.mapbox.com - check the internet connection (or whether that host is blocked) and reload.</div></div>');
+} else if (TOKEN) {
+  startMap(TOKEN);
+} else if (TOKEN_URL) {
+  fetchToken().then(t => { if (t) startMap(t); }).catch(e => showErr(e.message));
 } else {
-  mapboxgl.accessToken = TOKEN;
+  showErr(PROBLEM);
+}
+function startMap(token) {
+  mapboxgl.accessToken = token;
   map = new mapboxgl.Map({
     container: 'map', style: 'mapbox://styles/mapbox/streets-v12',
     center: CENTRE, zoom: ZOOM, cooperativeGestures: false,
@@ -641,6 +711,67 @@ if (!TOKEN) {
   // style is in, build the layers anyway.
   map.once('styledata', () => setTimeout(() => { if (map.isStyleLoaded()) onLoad(); }, 1500));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(() => { if (map.isStyleLoaded()) onLoad(); }, 500); });
+}
+
+// ------------------------------------------------------- boundary layers
+// The council, town councils and their wards, fetched from the app. Each gets a
+// line, labels, and an invisible fill so it can be picked for area statistics.
+const BND_DATA = {};
+function addBoundaries() {
+  const rows = [];
+  for (const b of BOUNDARIES) {
+    const id = 'bnd-' + b.id, vis = b.visible ? 'visible' : 'none';
+    map.addSource(id, {type: 'geojson', data: {type: 'FeatureCollection', features: []}});
+    map.addLayer({id: id + '-fill', type: 'fill', source: id, layout: {visibility: vis},
+      paint: {'fill-color': b.colour, 'fill-opacity': 0}}, 'clusters');
+    const line = {'line-color': b.colour, 'line-width': b.width || 1.5, 'line-opacity': 0.9};
+    if (b.dash) line['line-dasharray'] = b.dash;
+    map.addLayer({id: id + '-line', type: 'line', source: id, layout: {visibility: vis},
+      paint: line}, 'clusters');
+    map.addSource(id + '-labels', {type: 'geojson', data: {type: 'FeatureCollection', features: []}});
+    if (b.labels) map.addLayer({id: id + '-label', type: 'symbol', source: id + '-labels',
+      layout: {visibility: vis, 'text-field': ['get', 'name'], 'text-size': 11,
+               'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'], 'text-max-width': 9},
+      paint: {'text-color': b.colour, 'text-halo-color': '#fff', 'text-halo-width': 1.5}}, 'clusters');
+    fetch('/api/boundaries/' + b.id, {credentials: 'same-origin'}).then(r => r.json()).then(fc => {
+      BND_DATA[b.id] = fc;
+      map.getSource(id).setData(fc);
+      return fetch('/api/boundaries/' + b.id + '?labels=1', {credentials: 'same-origin'});
+    }).then(r => r.json()).then(fc => map.getSource(id + '-labels').setData(fc)).catch(() => {});
+    rows.push('<label class="row"><input type="checkbox" data-bnd="'
+      + esc(b.id) + '"' + (b.visible ? ' checked' : '') + '><span class="swatch' + (b.dash ? ' dash' : '')
+      + '" style="border-top-color:' + esc(b.colour) + '"></span><span>' + esc(b.label)
+      + (b.count ? ' <span class="tiny">(' + b.count + ')</span>' : '') + '</span></label>'
+      + (b.note ? '<div class="tiny" style="margin:-2px 0 4px 39px">' + esc(b.note) + '</div>' : ''));
+  }
+  $('bnd-rows').innerHTML = rows.join('');
+  document.querySelectorAll('#bnd-rows input').forEach(c => c.addEventListener('change', e => {
+    const id = 'bnd-' + e.target.dataset.bnd, v = e.target.checked ? 'visible' : 'none';
+    for (const suffix of ['-fill', '-line', '-label']) if (map.getLayer(id + suffix)) map.setLayoutProperty(id + suffix, 'visibility', v);
+  }));
+}
+function pickableLayers() {
+  const order = ['parish_wards_differ', 'parish_wards', 'town_councils', 'other_parishes', 'lad'];
+  const out = order.filter(id => map.getLayer('bnd-' + id + '-fill')
+    && map.getLayoutProperty('bnd-' + id + '-fill', 'visibility') !== 'none').map(id => 'bnd-' + id + '-fill');
+  if (map.getLayoutProperty('ward-fill', 'visibility') !== 'none') out.push('ward-fill');
+  return out;
+}
+
+// Wards shaded by how many of the reports currently shown fall in each.
+function shadeWards() {
+  if (!map || !map.getSource('wards')) return;
+  const on = $('l-shade').checked;
+  const counts = {};
+  if (on) for (const f of selectedAll()) { const c = f.properties.ward_code; if (c) counts[c] = (counts[c] || 0) + 1; }
+  const max = Math.max(1, ...Object.values(counts));
+  for (const w of WARDS.features) map.setFeatureState({source: 'wards', id: w.properties.code}, {n: counts[w.properties.code] || 0});
+  map.setPaintProperty('ward-fill', 'fill-color', on
+    ? ['interpolate', ['linear'], ['coalesce', ['feature-state', 'n'], 0], 0, '#f8fafc', max, '#b91c1c']
+    : '#1d5fa6');
+  map.setPaintProperty('ward-fill', 'fill-opacity', on
+    ? ['case', ['boolean', ['feature-state', 'hover'], false], 0.75, 0.55]
+    : ['case', ['boolean', ['feature-state', 'hover'], false], 0.18, 0.04]);
 }
 
 let didLoad = false;
@@ -715,6 +846,11 @@ function onLoad() {
             'circle-stroke-color': ['case', ['==', ['get', 'src'], 'pin'], '#1b1f24', '#fff'],
             'circle-stroke-width': 1.5}});
 
+  addBoundaries();
+  $('l-shade').addEventListener('change', shadeWards);
+  if ($('reporter')) $('reporter').addEventListener('change', () => { const d = filtered();
+    map.getSource('reports').setData(d); map.getSource('reports-flat').setData(d); recalc(); });
+
   map.on('click', 'clusters', e => {
     if (mode) return;
     const f = map.queryRenderedFeatures(e.point, {layers: ['clusters']})[0];
@@ -770,7 +906,7 @@ function onLoad() {
 function popup(f) {
   const p = f.properties;
   const bits = [];
-  if (p.photo) bits.push('<img src="' + esc(p.photo) + '" alt="" loading="lazy" onclick="lightbox(\'' + esc(p.photo_full || p.photo) + '\')">');
+  if (p.photo) bits.push('<img src="' + esc(p.photo) + '" alt="" loading="lazy" data-full="' + esc(p.photo_full || p.photo) + '">');
   const tags = ['<span class="tag">' + esc(KIND_NAMES[p.kind] || p.kind) + '</span>',
                 '<span class="tag">' + esc(STATUS_NAMES[p.status] || p.status) + '</span>'];
   if (p.src === 'pin') tags.push('<span class="tag">My Map' + (p.folder ? ' · ' + esc(p.folder) : '') + '</span>');
@@ -781,15 +917,22 @@ function popup(f) {
   const where = [p.street, p.locality, p.postcode].filter(Boolean).join(', ');
   if (where) bits.push('<b>Where:</b> ' + esc(where));
   if (p.w3w) bits.push('<b>W3W:</b> ///' + esc(p.w3w));
+  if (p.ward) bits.push('<b>Ward:</b> ' + esc(p.ward)
+    + (p.parish ? ' · <b>' + ((p.town_council === true || p.town_council === 'true') ? 'Town' : 'Parish') + ':</b> ' + esc(p.parish) : '')
+    + (p.parish_ward ? ' (' + esc(p.parish_ward) + ' ward)' : ''));
+  if (p.council) bits.push('<b>Council says:</b> ' + esc(p.council));
+  if (p.reporter) bits.push('<b>Reported by:</b> ' + esc(p.reporter));
   if (p.when) bits.push('<b>' + (p.src === 'pin' ? 'Dated' : 'Photographed') + ':</b> '
     + (p.when_est === true || p.when_est === 'true' ? '≈ ' : '') + esc(p.when)
     + (p.when_est === true || p.when_est === 'true' ? ' <span class="muted">(estimated from the reference number)</span>' : ''));
   if (p.detail) bits.push('<span class="muted">' + esc(p.detail) + '</span>');
-  const head = p.src === 'report' ? '#' + p.id + ' · ' : '';
+  const head = (p.src === 'report' && !SHARED) ? '#' + p.id + ' · ' : '';
   new mapboxgl.Popup().setLngLat(f.geometry.coordinates.slice())
     .setHTML('<h3>' + head + esc(p.title) + '</h3>' + bits.join('<br>')).addTo(map);
 }
 function lightbox(src) { const lb = $('lightbox'); lb.querySelector('img').src = src; lb.style.display = 'flex'; }
+document.addEventListener('click', e => { const t = e.target.closest && e.target.closest('img[data-full]');
+  if (t) lightbox(t.dataset.full); });
 
 // --------------------------------------------------------------- selection
 function setMode(m) {
@@ -799,7 +942,7 @@ function setMode(m) {
   const hint = $('hint');
   hint.style.display = mode ? 'block' : 'none';
   hint.textContent = mode === 'draw' ? 'Click to add corners · click the first corner, double-click or press Enter to finish · Esc to cancel'
-                   : mode === 'ward' ? 'Click a ward' : mode === 'view' ? 'Counting everything in view — pan and zoom to change it' : '';
+                   : mode === 'ward' ? 'Click a ward, town council or town council ward (switch layers on in the legend)' : mode === 'view' ? 'Counting everything in view — pan and zoom to change it' : '';
   if (mode !== 'draw') { drawPts = []; drawSrc(); }
   if (mode === 'view') { sel = null; selName = ''; $('sel-name').value = ''; setSel(null); recalc(); }
 }
@@ -817,10 +960,16 @@ function onMapClick(e) {
     }
     drawPts.push(c); drawSrc();
   } else if (mode === 'ward') {
-    const f = map.queryRenderedFeatures(e.point, {layers: ['ward-fill']})[0];
+    const f = map.queryRenderedFeatures(e.point, {layers: pickableLayers()})[0];
     if (f) {
-      const full = WARDS.features.find(w => w.properties.code === f.properties.code);
-      sel = full.geometry; selName = full.properties.name + ' ward';
+      const layer = f.layer.id.replace(/^bnd-/, '').replace(/-fill$/, '');
+      const pool = layer === 'ward-fill' ? WARDS : (BND_DATA[layer] || {features: []});
+      const full = pool.features.find(w => (f.properties.fid && w.properties.fid === f.properties.fid)
+        || (!f.properties.fid && w.properties.code === f.properties.code)) || f;
+      const kind = layer === 'ward-fill' ? ' ward' : layer.startsWith('parish_wards')
+        ? ' (' + (full.properties.parish || 'town') + ' ward)' : layer === 'town_councils'
+        ? ' Town Council' : layer === 'other_parishes' ? ' parish' : '';
+      sel = full.geometry; selName = full.properties.name + kind;
       $('sel-name').value = selName; setSel(sel);
       setMode(''); recalc();
     }
@@ -842,6 +991,7 @@ function onMove(e) {
   if (mode !== 'ward') { if (hoverWard !== null) { map.setFeatureState({source: 'wards', id: hoverWard}, {hover: false}); hoverWard = null; } return; }
   const f = map.queryRenderedFeatures(e.point, {layers: ['ward-fill']})[0];
   const id = f ? f.id : null;
+  map.getCanvas().title = '';
   if (hoverWard !== null && hoverWard !== id) map.setFeatureState({source: 'wards', id: hoverWard}, {hover: false});
   if (id !== null && id !== undefined) map.setFeatureState({source: 'wards', id}, {hover: true});
   hoverWard = id;
@@ -849,6 +999,17 @@ function onMove(e) {
 
 // ------------------------------------------------------------------- stats
 let period = 'month';
+// Everything shown that passes the date filters, wherever it is.
+function selectedAll() {
+  const since = $('since').value, until = $('until').value;
+  return filtered().features.filter(f => {
+    const p = f.properties, d = dateOf(p);
+    if (p.status === 'landmark') return false;
+    if (since && d && d < since) return false;
+    if (until && d && d > until) return false;
+    return true;
+  });
+}
 function selected() {
   const since = $('since').value, until = $('until').value;
   const incPins = $('inc-pins').checked, incEst = $('inc-est').checked, incUndated = $('inc-undated').checked;
@@ -875,12 +1036,17 @@ function recalc() {
   const scope = sel ? (selName || 'Selected area') : mode === 'view' ? 'Visible map' : (selName || 'Everything on the map');
   const n = rows.length;
   const byKind = {}, byStatus = {}, byStreet = {}, byMonth = {}, byWeek = {};
+  const byWard = {}, byTown = {}, byTownWard = {}, byWho = {};
   let est = 0, undated = 0, pins = 0, first = '', last = '';
   for (const f of rows) {
     const p = f.properties;
     byKind[p.kind] = (byKind[p.kind] || 0) + 1;
     byStatus[p.status] = (byStatus[p.status] || 0) + 1;
     if (p.street) byStreet[p.street] = (byStreet[p.street] || 0) + 1;
+    if (p.ward) byWard[p.ward] = (byWard[p.ward] || 0) + 1;
+    if (p.town_council === true || p.town_council === 'true') byTown[p.parish] = (byTown[p.parish] || 0) + 1;
+    if (p.parish_ward) byTownWard[p.parish_ward + ' (' + p.parish + ')'] = (byTownWard[p.parish_ward + ' (' + p.parish + ')'] || 0) + 1;
+    if (p.reporter) byWho[p.reporter] = (byWho[p.reporter] || 0) + 1;
     if (p.src === 'pin') pins++;
     if (p.when_est === true || p.when_est === 'true') est++;
     const d = dateOf(p);
@@ -899,8 +1065,13 @@ function recalc() {
   ];
   const bars = Object.entries(byKind).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
     '<div class="bar"><span>' + esc(KIND_NAMES[k] || k) + '</span><i style="width:' + Math.round(100 * v / Math.max(n, 1)) + '%;background:' + (COLOURS[k] || '#888') + '"></i><b>' + v + '</b></div>').join('');
-  const streets = Object.entries(byStreet).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) =>
+  const barList = (obj, top) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, top).map(([k, v]) =>
     '<div class="bar"><span>' + esc(k) + '</span><i style="width:' + Math.round(100 * v / Math.max(n, 1)) + '%"></i><b>' + v + '</b></div>').join('');
+  const streets = barList(byStreet, 5);
+  const areaBars = [['By unitary ward', byWard, 10], ['By town council', byTown, 13],
+                    ['By town council ward', byTownWard, 10], ['By reporter', SHARED ? byWho : {}, 10]]
+    .filter(([, o]) => Object.keys(o).length)
+    .map(([t, o, top]) => '<div class="sect"><h4>' + t + '</h4><div class="bars">' + barList(o, top) + '</div></div>').join('');
   const period_txt = (since ? fmtD(since) : (first ? fmtD(first) : '')) + ' – ' + (until ? fmtD(until) : 'today');
   $('stat-body').innerHTML =
     '<div><b style="font-size:14px">' + esc(scope) + '</b><br><span class="muted">' + esc(period_txt) + '</span></div>'
@@ -909,10 +1080,12 @@ function recalc() {
     + chartSvg(period === 'month' ? byMonth : byWeek, since || first, until) + '</div>'
     + (bars ? '<div class="sect"><h4>By type</h4><div class="bars">' + bars + '</div></div>' : '')
     + (streets ? '<div class="sect"><h4>Most-reported streets</h4><div class="bars">' + streets + '</div></div>' : '')
+    + areaBars
     + '<div class="foot">' + (pins ? pins + ' from the My Map · ' : '') + (est ? est + ' dated ≈ by reference number · ' : '')
     + (undated ? undated + ' undated · ' : '') + 'NNC Reporter · ' + new Date().toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}) + '</div>';
   window.__stats = {scope, period_txt, kpis, byKind, byMonth, byWeek, n, est, pins, undated};
   attachTips();
+  if ($('l-shade').checked) shadeWards();
 }
 function weekKey(d) {
   const dt = new Date(d + 'T00:00:00'); const day = (dt.getDay() + 6) % 7;   // Monday-based

@@ -30,7 +30,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import xml.etree.ElementTree as ET
 
-from . import config, store
+from . import config, netsafe, store
 from .geo import metres_between
 from .kml import STYLES, _style_for
 
@@ -111,7 +111,10 @@ def fetch_kml(mid: str, timeout: int = 60) -> bytes:
         link = href.text.strip()
         if "forcekml" not in link:
             link += ("&" if "?" in link else "?") + "forcekml=1"
-        data = unwrap_kmz(requests.get(link, timeout=timeout).content)
+        # The link comes from inside the downloaded file: only ever follow it
+        # back to Google, never to wherever a crafted file might point.
+        data = unwrap_kmz(netsafe.get(link, netsafe.GOOGLE_HOSTS,
+                                      timeout=timeout).content)
     return data
 
 
@@ -519,11 +522,19 @@ def import_from_mid(mid: str) -> dict:
 # ------------------------------------------------------------------- photos
 
 _cache_lock = threading.Lock()
-_cache_state = {"running": False, "done": 0, "failed": 0, "total": 0, "last": ""}
+_cache_states: dict = {}            # person -> progress of their photo caching
+
+
+def _state() -> dict:
+    """This person's photo-caching progress (everyone has their own pins)."""
+    with _cache_lock:
+        return _cache_states.setdefault(
+            config.web_user() or "local",
+            {"running": False, "done": 0, "failed": 0, "total": 0, "last": ""})
 
 
 def photo_cache_state() -> dict:
-    return dict(_cache_state)
+    return dict(_state())
 
 
 def _sized(url: str, px: int) -> str:
@@ -539,13 +550,13 @@ def _sized(url: str, px: int) -> str:
 def cache_photos(data_dir: Path | None = None) -> dict:
     """Download every uncached pin photo into data/pins/. Runs in the background
     after an import; safe to call again - it only fetches what is missing."""
+    _cache_state = _state()
     with _cache_lock:
         if _cache_state["running"]:
             return photo_cache_state()
         _cache_state.update(running=True, done=0, failed=0, total=0, last="")
 
     def work():
-        import requests
         try:
             base = data_dir or config.data_dir()
             folder = base / "pins"
@@ -561,8 +572,8 @@ def cache_photos(data_dir: Path | None = None) -> dict:
                 thumb = folder / f"{stem}_thumb.jpg"
                 try:
                     if not full.exists():
-                        resp = requests.get(_sized(r["photo_url"], 1600), timeout=40,
-                                            headers={"User-Agent": "NNC-Reporter/1.0"})
+                        resp = netsafe.get(_sized(r["photo_url"], 1600), timeout=40,
+                                           headers={"User-Agent": "NNC-Reporter/1.0"})
                         resp.raise_for_status()
                         if not resp.content or b"<html" in resp.content[:200].lower():
                             raise ValueError("not an image")
@@ -580,7 +591,10 @@ def cache_photos(data_dir: Path | None = None) -> dict:
         finally:
             _cache_state["running"] = False
 
-    threading.Thread(target=work, daemon=True).start()
+    # Carry the person's data folder into the worker thread (see config.use_user).
+    import contextvars
+    threading.Thread(target=contextvars.copy_context().run, args=(work,),
+                     daemon=True).start()
     return photo_cache_state()
 
 

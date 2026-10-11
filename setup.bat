@@ -31,7 +31,7 @@ set "VPY=.venv\Scripts\python.exe"
 echo Installing packages ^(a few minutes^)...
 "%VPY%" -m pip install --upgrade pip --quiet
 if errorlevel 1 goto pipfail
-"%VPY%" -m pip install -r requirements.txt
+"%VPY%" -m pip install -r requirements-dev.txt
 if errorlevel 1 goto pipfail
 
 echo.
@@ -39,10 +39,10 @@ echo Installing the automation browser ^(Chromium, ~150MB^)...
 "%VPY%" -m playwright install chromium
 if errorlevel 1 goto pipfail
 
-if not exist config.json (
-  copy config.example.json config.json >nul
+if not exist .env (
+  copy .env.example .env >nul
   echo.
-  echo Created config.json - open it and add your details and API keys.
+  echo Created .env - open it to add the API keys and email settings.
 )
 
 echo.
@@ -51,7 +51,8 @@ echo Running self-check...
 "%VPY%" selfcheck.py
 echo.
 echo ============================================
-echo  Setup complete. Double-click run.bat next.
+echo  Setup complete. Next: add-admin.bat to create
+echo  your admin account, then run.bat.
 echo ============================================
 pause
 exit /b 0

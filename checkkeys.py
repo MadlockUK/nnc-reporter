@@ -1,4 +1,5 @@
-"""Confirm the API keys in config.json actually work. Run: check-keys.bat"""
+"""Confirm the API keys (from .env or the environment) actually work.
+Run: check-keys.bat"""
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ LAT, LON = 52.39620, -0.72590  # Rockingham Road, Kettering
 
 print("\nWhat3Words")
 if not cfg["keys"].get("what3words"):
-    print("  no key in config.json - reports will use street + postcode instead")
+    print("  no WHAT3WORDS_API_KEY set - reports will use street + postcode instead")
 else:
     r = geo.what3words(LAT, LON, cfg)
     if r.get("words"):
@@ -31,7 +32,7 @@ else:
 
 print("\nPhoto categorisation (Anthropic)")
 if not classify.available(cfg):
-    print("  off - add keys.anthropic to config.json to have categories suggested")
+    print("  off - set ANTHROPIC_API_KEY to have categories suggested")
 else:
     try:
         import anthropic

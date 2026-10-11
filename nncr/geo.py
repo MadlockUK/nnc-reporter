@@ -1,6 +1,7 @@
 """Turn coordinates into human location: street/postcode (OSM) and What3Words."""
 import json
 import math
+import threading
 import time
 from pathlib import Path
 
@@ -8,27 +9,48 @@ import requests
 
 from . import config
 
-_CACHE_FILE = config.BASE_DIR / "data" / "geo_cache.json"
 _cache: dict | None = None
 _last_nominatim = 0.0
+# Several people can be uploading at once in the web app: one lock keeps the
+# cache file whole and keeps Nominatim at one request a second across all of them.
+_cache_lock = threading.RLock()
+_nominatim_lock = threading.Lock()
+
+
+def _cache_file() -> Path:
+    return config.shared_dir() / "geo_cache.json"
 
 
 def _load_cache() -> dict:
     global _cache
-    if _cache is None:
-        try:
-            _cache = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            _cache = {}
-    return _cache
+    with _cache_lock:
+        if _cache is None:
+            try:
+                _cache = json.loads(_cache_file().read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                _cache = {}
+        return _cache
 
 
 def _save_cache() -> None:
-    try:
-        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_FILE.write_text(json.dumps(_load_cache(), indent=0), encoding="utf-8")
-    except OSError:
-        pass
+    with _cache_lock:
+        try:
+            path = _cache_file()
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(_load_cache(), indent=0), encoding="utf-8")
+            tmp.replace(path)
+        except OSError:
+            pass
+
+
+def _pace_nominatim() -> None:
+    """Nominatim's usage policy: at most one request a second, from everyone."""
+    global _last_nominatim
+    with _nominatim_lock:
+        wait = 1.1 - (time.time() - _last_nominatim)
+        if wait > 0:
+            time.sleep(wait)
+        _last_nominatim = time.time()
 
 
 def _key(prefix: str, lat: float, lon: float) -> str:
@@ -42,10 +64,7 @@ def reverse_geocode(lat: float, lon: float, cfg: dict) -> dict:
     if ck in cache:
         return cache[ck]
 
-    global _last_nominatim
-    wait = 1.1 - (time.time() - _last_nominatim)  # Nominatim: max 1 req/sec
-    if wait > 0:
-        time.sleep(wait)
+    _pace_nominatim()
 
     out = {"street": None, "locality": None, "postcode": None, "address": None,
            "error": None}
@@ -58,7 +77,6 @@ def reverse_geocode(lat: float, lon: float, cfg: dict) -> dict:
             headers={"User-Agent": "nnc-reporter/1.0 (council issue reporting)"},
             timeout=20,
         )
-        _last_nominatim = time.time()
         r.raise_for_status()
         d = r.json()
         a = d.get("address", {})
@@ -125,10 +143,7 @@ def forward_geocode(query: str, cfg: dict, limit: int = 5) -> dict:
     if ck in cache:
         return cache[ck]
 
-    global _last_nominatim
-    wait = 1.1 - (time.time() - _last_nominatim)  # Nominatim: max 1 req/sec
-    if wait > 0:
-        time.sleep(wait)
+    _pace_nominatim()
 
     out = {"results": [], "error": None}
     try:
@@ -142,7 +157,6 @@ def forward_geocode(query: str, cfg: dict, limit: int = 5) -> dict:
             headers={"User-Agent": "nnc-reporter/1.0 (council issue reporting)"},
             timeout=20,
         )
-        _last_nominatim = time.time()
         r.raise_for_status()
         for d in r.json() or []:
             a = d.get("address", {})

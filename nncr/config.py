@@ -6,6 +6,7 @@ synced or shared. Precedence, highest first:
   2. %USERPROFILE%\\.nnc-reporter\\keys.json   ->  {"anthropic": "...", "what3words": "..."}
   3. the "keys" block in config.json
 """
+import contextvars
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,30 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config.json"
 EXAMPLE_PATH = BASE_DIR / "config.example.json"
+
+
+def _load_dotenv(path: Path) -> None:
+    """KEY=value lines from a local .env file (git-ignored), for running on your
+    own computer. Real environment variables always win; on a server, set them
+    in the host's secret store instead of using a file."""
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv(Path(os.environ.get("NNC_ENV_FILE") or (BASE_DIR / ".env")))
 
 DEFAULTS = {
     "reporter": {"full_name": "", "first_name": "", "last_name": "", "email": "",
@@ -216,9 +241,52 @@ def names(reporter: dict) -> tuple[str, str]:
     return first or parts[0], last or (" ".join(parts[1:]) if len(parts) > 1 else "")
 
 
+# ---------------------------------------------------------------- web users
+# In the hosted web app every signed-in person has a data folder of their own:
+# their database, photos and browser session. The request (and any thread it
+# starts) carries that folder in a context variable, so every module that asks
+# for data_dir() gets the right person's folder without being told who it is -
+# and one person's reports can never be read through another's request.
+
+_user_dir: contextvars.ContextVar = contextvars.ContextVar("nnc_user_dir", default=None)
+_user_key: contextvars.ContextVar = contextvars.ContextVar("nnc_user_key", default=None)
+
+
+def use_user(key: str, folder: Path) -> tuple:
+    """Make `folder` the data folder for this request or thread. Returns the
+    tokens that undo it (see release_user)."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    for sub in ("photos", "thumbs"):
+        (folder / sub).mkdir(exist_ok=True)
+    return _user_dir.set(folder), _user_key.set(key)
+
+
+def release_user(tokens: tuple) -> None:
+    _user_dir.reset(tokens[0])
+    _user_key.reset(tokens[1])
+
+
+def web_user() -> str | None:
+    """The signed-in person this code is running for, or None when local."""
+    return _user_key.get()
+
+
+def shared_dir() -> Path:
+    """Data shared by everyone: caches, the auth database, boundaries.
+    NNC_DATA_DIR moves it (and every user's folder) off the code checkout."""
+    d = Path(os.environ.get("NNC_DATA_DIR") or (BASE_DIR / "data"))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def data_dir() -> Path:
     """This profile's data: its database, its photos. Follows the active profile,
-    so the reports of one person are never mixed with another's."""
+    so the reports of one person are never mixed with another's. In the web app
+    it is the signed-in person's own folder."""
+    folder = _user_dir.get()
+    if folder is not None:
+        return folder
     return profile_data_dir()
 
 

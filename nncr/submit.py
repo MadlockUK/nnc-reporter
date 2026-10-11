@@ -1,8 +1,19 @@
-"""Prefill the council's own forms in a real, visible browser - you press Submit.
+"""Prefill the council's own forms in a real browser - a person decides to Submit.
 
-Deliberately never clicks the final Submit button. The tool drives the form to the
-last step, scrolls the Submit button into view, and then watches the page until it
-sees a confirmation, recording the reference number against the report.
+Two ways to run, chosen by NNC_SUBMIT_MODE:
+
+  visible  A real, visible browser on this computer (the desktop tool). The tool
+           drives the form to its last step, scrolls the Submit button into view
+           and waits for you to press it yourself.
+  server   The hosted web app. The browser runs headless on the server; each
+           prefilled form is shown in the app as a screenshot plus the values in
+           its fields, and is only submitted when you press "Submit to council"
+           for that report. A live view lets you finish any form by hand.
+
+Either way the tool never submits on its own initiative: in visible mode it never
+clicks Submit at all, and in server mode it clicks it only on your explicit,
+per-report instruction. Then it watches the page until it sees a confirmation,
+recording the reference number against the report.
 
 Everything is matched on visible label text via JavaScript rather than CSS ids,
 because the council's form overlays its map sidebar on top of controls - which
@@ -10,6 +21,7 @@ defeats ordinary Playwright clicks - and because ids change between releases.
 """
 import json
 import os
+import queue
 import re
 import shutil
 import threading
@@ -22,9 +34,69 @@ SELECTORS_PATH = config.BASE_DIR / "selectors.json"
 OLD_PROFILE_DIR = config.BASE_DIR / "data" / "browser-profile"
 _LOCK_FILES = ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile")
 
-_lock = threading.Lock()          # one browser session at a time
-_log: dict[int, list] = {}        # report id -> progress lines
-_active: dict[int, str] = {}      # report id -> state
+VIEWPORT = {"width": 1360, "height": 950}
+
+# Everything below is kept per person: in the web app several people can be
+# running submissions at once, and their report ids overlap (each has their own
+# database), so a log or a lock keyed on the report id alone would mix them up.
+_guard = threading.Lock()
+_locks: dict[str, threading.Lock] = {}     # person -> one browser session at a time
+_LOGS: dict[str, dict[int, list]] = {}     # person -> report id -> progress lines
+_STATES: dict[str, dict[int, str]] = {}    # person -> report id -> state
+_RUNS: dict[str, "Run"] = {}               # person -> the server-mode run in progress
+
+# A browser needs ~1GB. However many people press Submit, only this many
+# browsers run on the server at once.
+_browsers = threading.BoundedSemaphore(max(1, int(os.environ.get("NNC_MAX_BROWSERS", "2"))))
+
+
+def _who() -> str:
+    return config.web_user() or "local"
+
+
+def _logs() -> dict:
+    with _guard:
+        return _LOGS.setdefault(_who(), {})
+
+
+def _states() -> dict:
+    with _guard:
+        return _STATES.setdefault(_who(), {})
+
+
+def _user_lock() -> threading.Lock:
+    with _guard:
+        return _locks.setdefault(_who(), threading.Lock())
+
+
+def mode() -> str:
+    """'server' (headless, approve in the app) or 'visible' (desktop window)."""
+    want = (os.environ.get("NNC_SUBMIT_MODE") or "").strip().lower()
+    if want in ("server", "visible", "off"):
+        return want
+    return "server" if config.web_user() else "visible"
+
+
+def server_mode() -> bool:
+    return mode() == "server"
+
+
+class Run:
+    """A server-mode run: the open tabs, and the instructions waiting for them.
+
+    Playwright pages may only be touched by the thread that opened them, so the
+    web requests never touch a page: they drop an instruction in `commands`, and
+    the run's own thread carries it out between its checks for confirmations.
+    """
+
+    def __init__(self):
+        self.commands: queue.Queue = queue.Queue()
+        self.reports: dict[int, dict] = {}     # rid -> {reached, fields, title}
+        self.frames: dict[int, tuple] = {}     # rid -> (time, jpeg bytes)
+        self.want_frame: set = set()
+        self.pressed: set = set()
+        self.started = time.time()
+        self.deadline = 0.0
 
 
 def selectors() -> dict:
@@ -56,6 +128,12 @@ def profile_dir() -> Path:
     Chromium profile in a synced folder gets its lock files copied around, after
     which Chromium refuses to start with "Opening in existing browser session".
     """
+    if config.web_user():
+        # The hosted app: each person's signed-in session lives in their own
+        # data folder, never shared with anyone else's.
+        d = config.data_dir() / "browser-profile"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     base = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_CACHE_HOME") \
         or str(Path.home())
     who = config.active_profile()
@@ -99,11 +177,15 @@ def _launch(p, rid: int | None = None):
     except ImportError:
         PWError = Exception
     prof = profile_dir()
+    headless = server_mode()
+    extra = {}
+    if os.environ.get("NNC_CHROMIUM_PATH"):
+        extra["executable_path"] = os.environ["NNC_CHROMIUM_PATH"]
     for attempt in (1, 2):
         try:
             return p.chromium.launch_persistent_context(
-                str(prof), headless=False, viewport={"width": 1360, "height": 950},
-                args=["--window-position=60,40"])
+                str(prof), headless=headless, viewport=dict(VIEWPORT),
+                args=[] if headless else ["--window-position=60,40"], **extra)
         except PWError as e:
             msg = str(e)
             stale = ("already in use" in msg or "existing browser session" in msg
@@ -126,7 +208,7 @@ MAX_LOG = 500
 
 
 def log_for(rid: int = BATCH) -> dict:
-    return {"state": _active.get(rid, "idle"), "lines": _log.get(rid, [])}
+    return {"state": _states().get(rid, "idle"), "lines": list(_logs().get(rid, []))}
 
 
 def _say(rid: int, msg: str) -> None:
@@ -134,11 +216,11 @@ def _say(rid: int, msg: str) -> None:
     stamp = time.strftime("%H:%M:%S")
     for key, line in ((rid, f"{stamp}  {msg}"),
                       *(() if rid == BATCH else ((BATCH, f"{stamp}  #{rid}: {msg}"),))):
-        lines = _log.setdefault(key, [])
+        lines = _logs().setdefault(key, [])
         lines.append(line)
         if len(lines) > MAX_LOG:
             del lines[:-MAX_LOG]
-    print(f"[report {rid}] {msg}", flush=True)
+    print(f"[{_who()} report {rid}] {msg}", flush=True)
 
 
 # ---------------------------------------------------------------- JS helpers
@@ -2064,8 +2146,13 @@ def _highlight_submit(page, rid: int) -> bool:
         b.style.outline = '3px solid #b3261e';
         return true;
       }""")
-    _say(rid, "READY - check this tab, then press Submit"
-         if found else "prefilled as far as possible - finish this tab by hand")
+    if server_mode():
+        _say(rid, "READY - check the preview and the values, then press "
+                  "'Submit to council'" if found else
+                  "prefilled as far as possible - finish it in the live view")
+    else:
+        _say(rid, "READY - check this tab, then press Submit"
+             if found else "prefilled as far as possible - finish this tab by hand")
     return bool(found)
 
 
@@ -2079,7 +2166,8 @@ def _prefill(page, r: dict, cfg: dict, signed: bool) -> bool:
 
 
 def run_batch(rids: list, cfg: dict) -> dict:
-    """Prefill every report in its own tab, then wait for you to submit them."""
+    """Prefill every report in its own tab, then wait for each to be submitted -
+    by you in the window (visible mode), or on your say-so in the app (server)."""
     from playwright.sync_api import sync_playwright
 
     reports, skipped = [], []
@@ -2087,7 +2175,7 @@ def run_batch(rids: list, cfg: dict) -> dict:
         r = store.get(rid)
         if not r:
             skipped.append((rid, "not found"))
-        elif r["status"] == "submitted":
+        elif r["status"] in store.DONE_STATUSES:
             skipped.append((rid, "already submitted"))
         elif r.get("lat") is None:
             skipped.append((rid, "no location"))
@@ -2103,31 +2191,38 @@ def run_batch(rids: list, cfg: dict) -> dict:
                 r["_rerouted"] = True
             reports.append(r)
 
-    _log[BATCH] = []
-    _active[BATCH] = "opening browser"
+    _logs()[BATCH] = []
+    _states()[BATCH] = "opening browser"
     for rid, why in skipped:
         _say(BATCH, f"skipping #{rid}: {why}")
     if not reports:
-        _active[BATCH] = "nothing to do"
+        _states()[BATCH] = "nothing to do"
         return {"ok": False, "error": "nothing to prefill", "skipped": skipped}
+
+    run = Run() if server_mode() else None
+    if run:
+        with _guard:
+            _RUNS[_who()] = run
 
     with sync_playwright() as p:
         ctx = _launch(p, BATCH)
         try:
+            if run:
+                guard_navigation(ctx)
             base = ctx.pages[0] if ctx.pages else ctx.new_page()
             sel = selectors()["fixmystreet"]
 
             # Sign in once for the whole run, before any tab is filled.
             signed = False
             if any(_sel_key(r.get("service")) == "fixmystreet" for r in reports):
-                _active[BATCH] = "signing in"
+                _states()[BATCH] = "signing in"
                 signed = sign_in(base, cfg, sel, BATCH)
 
-            _active[BATCH] = "filling forms"
+            _states()[BATCH] = "filling forms"
             open_pages = {}
             for i, r in enumerate(reports):
                 rid = r["id"]
-                _log[rid] = []
+                _logs()[rid] = []
                 _say(BATCH, f"tab {i + 1} of {len(reports)}: report #{rid} "
                             f"({r['category']})")
                 if r.pop("_rerouted", False):
@@ -2143,32 +2238,259 @@ def run_batch(rids: list, cfg: dict) -> dict:
                     _say(rid, f"this belongs on the "
                               f"{forms.get(r['service'], r['service'])} - using that")
                 page = base if i == 0 else ctx.new_page()
+                reached = False
                 try:
-                    _prefill(page, r, cfg, signed)
+                    reached = bool(_prefill(page, r, cfg, signed))
                 except Exception as e:
                     _say(rid, f"ERROR while filling: {e}")
                 store.update(rid, {"status": "awaiting"})
                 open_pages[rid] = page
+                if run:
+                    _preview(page, rid)
+                    run.reports[rid] = {"reached": reached,
+                                        "title": r.get("title") or r.get("category"),
+                                        "fields": form_values(page),
+                                        "url": _safe_url(page)}
 
-            _active[BATCH] = "waiting for you to submit"
-            _say(BATCH, f"{len(open_pages)} tab(s) ready. Check each one and press "
-                        f"Submit - they can be done in any order.")
-            done = _watch_many(open_pages, cfg)
-            _active[BATCH] = "finished"
+            if run:
+                _states()[BATCH] = "waiting for your approval"
+                ready = sum(1 for i in run.reports.values() if i.get("reached"))
+                stuck = len(open_pages) - ready
+                _say(BATCH, f"{ready} of {len(open_pages)} form(s) filled in to their Submit "
+                            f"button" + (f"; {stuck} need finishing in the live view (or "
+                                         f"'Don't send')" if stuck else "")
+                            + ". Check each one and press 'Submit to council' on the ones "
+                              "to send - nothing is sent until you do.")
+            else:
+                _states()[BATCH] = "waiting for you to submit"
+                _say(BATCH, f"{len(open_pages)} tab(s) ready. Check each one and press "
+                            f"Submit - they can be done in any order.")
+            done = _watch_many(open_pages, cfg, run)
+            _states()[BATCH] = "finished"
             _say(BATCH, f"{len(done)} of {len(open_pages)} submitted")
             return {"ok": True, "submitted": list(done), "skipped": skipped}
         except Exception as e:
             _say(BATCH, f"ERROR: {e}")
-            _active[BATCH] = "error"
+            _states()[BATCH] = "error"
             for rid in [r["id"] for r in reports]:
                 if (store.get(rid) or {}).get("status") == "awaiting":
                     store.update(rid, {"status": "ready"})
             return {"ok": False, "error": str(e)}
         finally:
+            if run:
+                with _guard:
+                    if _RUNS.get(_who()) is run:
+                        _RUNS.pop(_who(), None)
             try:
                 ctx.close()
             except Exception:
                 pass
+
+
+# ------------------------------------------------------- server-mode review
+# What a person sees before deciding to submit: a picture of the prefilled form,
+# and every value actually sitting in its fields.
+
+JS_FORM_VALUES = """
+() => {
+  const txt = e => ((e && (e.innerText || e.textContent)) || '').replace(/\\s+/g, ' ').trim();
+  const esc = s => (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(s) : s;
+  const labelOf = el => {
+    let t = '';
+    if (el.id) { const l = document.querySelector('label[for="' + esc(el.id) + '"]'); if (l) t = txt(l); }
+    if (!t) { const l = el.closest && el.closest('label'); if (l) t = txt(l); }
+    if (!t) t = el.getAttribute('aria-label') || el.placeholder || el.name || '';
+    return t.slice(0, 90);
+  };
+  const shown = e => { try { const r = e.getBoundingClientRect(); return !!(r.width || r.height); }
+                       catch (err) { return true; } };
+  const out = [];
+  for (const el of document.querySelectorAll('input, select, textarea')) {
+    const type = (el.type || '').toLowerCase();
+    if (type === 'file') {
+      if (el.files && el.files.length) out.push({label: labelOf(el) || 'Photo',
+        value: [...el.files].map(f => f.name).join(', ')});
+      continue;
+    }
+    if (['hidden', 'submit', 'button', 'image', 'reset', 'password'].includes(type)) continue;
+    if (!shown(el)) continue;
+    if (type === 'radio' || type === 'checkbox') {
+      if (el.checked) out.push({label: labelOf(el), value: type === 'checkbox' ? 'ticked' : 'chosen'});
+      continue;
+    }
+    const v = el.tagName === 'SELECT' ? txt(el.options[el.selectedIndex]) : el.value;
+    if (v) out.push({label: labelOf(el), value: String(v).slice(0, 800)});
+  }
+  return out;
+}"""
+
+JS_PRESS_SUBMIT = """
+() => {
+  const lab = e => ((e.innerText || e.value || '').replace(/\\s+/g, ' ').trim().toLowerCase());
+  const shown = e => { const r = e.getBoundingClientRect(); return !!(r.width || r.height) && !e.disabled; };
+  const b = [...document.querySelectorAll('button, input[type=submit]')]
+    .find(e => /^submit\\b/.test(lab(e)) && shown(e));
+  if (!b) return '';
+  b.scrollIntoView({block: 'center'});
+  b.click();
+  return lab(b);
+}"""
+
+# Keys the live view may press. Anything else is typed as text, or refused.
+LIVE_KEYS = {"Enter", "Tab", "Backspace", "Delete", "Escape", "ArrowUp", "ArrowDown",
+             "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "Space",
+             "Shift+Tab"}
+
+
+# Where the server's browser may go. The live view lets a person click about in
+# a browser that runs on the server, so its pages may only be the council's own:
+# a link to anywhere else - or to the server's own network - is refused.
+ALLOWED_HOSTS = tuple(h.strip().lower() for h in (
+    os.environ.get("NNC_BROWSER_ALLOWED_HOSTS")
+    or "northnorthants.gov.uk,achieveservice.com,firmstep.com,granicus.com").split(",")
+    if h.strip())
+
+
+def host_allowed(url: str) -> bool:
+    from urllib.parse import urlparse
+    u = urlparse(url or "")
+    host = (u.hostname or "").lower()
+    return u.scheme == "https" and any(host == h or host.endswith("." + h)
+                                       for h in ALLOWED_HOSTS)
+
+
+def guard_navigation(ctx) -> None:
+    """Refuse any page (or frame) load outside the council's sites. Only requests
+    to other hosts are routed through here, so the council's own pages load at
+    full speed; pictures and scripts from elsewhere still load as they would."""
+    hosts = "|".join(re.escape(h) for h in ALLOWED_HOSTS)
+    others = re.compile(rf"^(?!https://([a-z0-9-]+\.)*({hosts})(:443)?(/|$))", re.I)
+
+    def check(route):
+        req = route.request
+        try:
+            navigating = req.is_navigation_request()
+        except Exception:
+            navigating = True
+        if navigating and not host_allowed(req.url):
+            _say(BATCH, f"refused to open {req.url[:80]} - the server's browser only "
+                        f"visits the council's own sites")
+            return route.abort("blockedbyclient")
+        return route.continue_()
+    ctx.route(others, check)
+
+
+def _docs(page) -> list:
+    """The tab and every frame in it - the Granicus forms live in an iframe."""
+    docs = [page]
+    try:
+        docs += [f for f in page.frames if f is not getattr(page, "main_frame", None)]
+    except Exception:
+        pass
+    return docs
+
+
+def _safe_url(page) -> str:
+    try:
+        return page.url
+    except Exception:
+        return ""
+
+
+def form_values(page) -> list:
+    out = []
+    for doc in _docs(page):
+        for f in _js(doc, JS_FORM_VALUES) or []:
+            if f.get("value") and f not in out:
+                out.append(f)
+    return out[:80]
+
+
+def previews_dir() -> Path:
+    d = config.data_dir() / "previews"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _preview(page, rid: int) -> None:
+    """A picture of the form as it stands, Submit button in view."""
+    try:
+        page.screenshot(path=str(previews_dir() / f"{rid}.jpg"), type="jpeg",
+                        quality=72, full_page=True, timeout=15000)
+    except Exception as e:
+        _say(rid, f"could not take a preview picture: {str(e).splitlines()[0]}")
+
+
+def _press_submit(page, rid: int) -> bool:
+    for doc in _docs(page):
+        hit = _js(doc, JS_PRESS_SUBMIT)
+        if hit:
+            _say(rid, f"pressed '{hit}' on your instruction")
+            return True
+    _say(rid, "could not find the Submit button on this form - open the live view "
+              "and press it there, or cancel this one")
+    return False
+
+
+def _service(run: "Run", pending: dict) -> None:
+    """Carry out the instructions the app has queued for this run."""
+    while True:
+        try:
+            cmd = run.commands.get_nowait()
+        except queue.Empty:
+            break
+        kind, rid = cmd.get("kind"), cmd.get("rid")
+        if kind == "cancel_all":
+            for r_id, page in list(pending.items()):
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            _say(BATCH, "run cancelled - nothing further was submitted")
+            continue
+        page = pending.get(rid)
+        if page is None:
+            continue
+        # Someone is working on this run: give them time to finish.
+        run.deadline = max(run.deadline, time.time() + 600)
+        try:
+            if kind == "submit":
+                if rid in run.pressed:
+                    _say(rid, "Submit was already pressed for this report - waiting for "
+                              "the confirmation page")
+                    continue
+                if _press_submit(page, rid):
+                    run.pressed.add(rid)
+            elif kind == "cancel":
+                page.close()
+                _say(rid, "cancelled - not submitted")
+            elif kind == "click":
+                page.mouse.click(float(cmd["x"]), float(cmd["y"]))
+            elif kind == "type":
+                page.keyboard.type(str(cmd.get("text", ""))[:2000], delay=15)
+            elif kind == "key" and cmd.get("key") in LIVE_KEYS:
+                key = cmd["key"]
+                page.keyboard.press(" " if key == "Space" else key)
+            elif kind == "scroll":
+                page.mouse.wheel(0, max(-3000, min(3000, float(cmd.get("dy", 0)))))
+            run.want_frame.add(rid)
+        except Exception as e:
+            _say(rid, f"could not do that in the live view: {str(e).splitlines()[0]}")
+
+    for rid in list(run.want_frame):
+        run.want_frame.discard(rid)
+        page = pending.get(rid)
+        if page is None:
+            continue
+        try:
+            run.frames[rid] = (time.time(), page.screenshot(type="jpeg", quality=60,
+                                                            timeout=8000))
+        except Exception:
+            pass
+        info = run.reports.get(rid)
+        if info is not None:
+            info["fields"] = form_values(page)
+            info["url"] = _safe_url(page)
 
 
 def page_wait(page, ms: int) -> None:
@@ -2198,14 +2520,27 @@ def _page_text(page) -> str:
     return " ".join(parts).lower()
 
 
-def _watch_many(pages: dict, cfg: dict) -> dict:
-    """Poll every open tab until it shows a confirmation, or we run out of time."""
+def _watch_many(pages: dict, cfg: dict, run: "Run | None" = None) -> dict:
+    """Poll every open tab until it shows a confirmation, or we run out of time.
+
+    In server mode the same loop also carries out what the app asks of the run:
+    pressing Submit on a report you approved, cancelling one, or the clicks and
+    typing of the live view."""
     seconds = max(120, int(cfg["submission"]["wait_for_submit_seconds"]))
+    if run:
+        run.deadline = time.time() + seconds
     deadline = time.time() + seconds
     sels = selectors()
     pending, done = dict(pages), {}
+    next_check = 0.0
 
-    while pending and time.time() < deadline:
+    while pending and time.time() < (run.deadline if run else deadline):
+        if run:
+            _service(run, pending)
+        if time.time() < next_check:
+            time.sleep(0.25)
+            continue
+        next_check = time.time() + 3
         for rid, page in list(pending.items()):
             try:
                 if page.is_closed():
@@ -2243,16 +2578,17 @@ def _watch_many(pages: dict, cfg: dict) -> dict:
                               + (" (photo published)" if photo_url else ""))
                     done[rid] = ref
                     pending.pop(rid)
+                    if run and rid in run.reports:
+                        run.reports[rid]["submitted"] = ref or True
             except Exception:
                 pass
-        if pending:
-            time.sleep(3)
 
-    for rid in pending:
+    for rid, page in pending.items():
         store.update(rid, {"status": "ready"})
         _say(rid, "no confirmation seen - left as 'ready to submit'")
     if pending:
-        _say(BATCH, f"stopped waiting after {seconds // 60} minutes")
+        waited = int(time.time() - (run.started if run else deadline - seconds))
+        _say(BATCH, f"stopped waiting after {max(1, waited // 60)} minutes")
     return done
 
 
@@ -2285,34 +2621,102 @@ def _extract_ref(body: str, url: str) -> str:
 
 
 def submit(rids, cfg: dict) -> dict:
-    """Entry point for one report or many. Serialised - one browser at a time."""
+    """Entry point for one report or many. Serialised - one browser per person,
+    and no more than NNC_MAX_BROWSERS on the server at once."""
     if isinstance(rids, int):
         rids = [rids]
     rids = [int(x) for x in rids]
     if not rids:
         return {"ok": False, "error": "nothing selected"}
-    if not _lock.acquire(blocking=False):
+    lock = _user_lock()
+    if not lock.acquire(blocking=False):
         return {"ok": False, "error": "a browser session is already open"}
     try:
-        return run_batch(rids, cfg)
+        if not _browsers.acquire(blocking=False):
+            _logs()[BATCH] = []
+            _states()[BATCH] = "server busy"
+            _say(BATCH, "the server is already running as many browsers as it can - "
+                        "try again in a few minutes")
+            return {"ok": False, "error": "server busy"}
+        try:
+            return run_batch(rids, cfg)
+        finally:
+            _browsers.release()
     except Exception as e:
         _say(BATCH, f"ERROR: {e}")
-        _active[BATCH] = "error"
+        _states()[BATCH] = "error"
         return {"ok": False, "error": str(e)}
     finally:
-        _lock.release()
+        lock.release()
 
 
 def busy() -> bool:
-    return _lock.locked()
+    return _user_lock().locked()
 
 
-def sign_in_only(cfg: dict) -> bool:
+def capacity_left() -> bool:
+    """Is there a browser free on the server right now? (A hint, not a promise.)"""
+    if _browsers.acquire(blocking=False):
+        _browsers.release()
+        return True
+    return False
+
+
+# ------------------------------------------------- the app's view of a run
+
+def current_run() -> "Run | None":
+    with _guard:
+        return _RUNS.get(_who())
+
+
+def run_state() -> dict:
+    """What the app shows for this person's run: each report's preview state."""
+    run = current_run()
+    if not run:
+        return {"active": False, "reports": {}}
+    out = {}
+    for rid, info in list(run.reports.items()):
+        out[rid] = {"reached": info.get("reached", False),
+                    "title": info.get("title") or "",
+                    "fields": info.get("fields") or [],
+                    "url": info.get("url") or "",
+                    "submitted": info.get("submitted"),
+                    "pressed": rid in run.pressed,
+                    "has_preview": (previews_dir() / f"{rid}.jpg").exists()}
+    return {"active": True, "reports": out, "viewport": dict(VIEWPORT),
+            "seconds_left": max(0, int(run.deadline - time.time())) if run.deadline else None}
+
+
+def command(kind: str, rid: int | None = None, **extra) -> bool:
+    """Queue an instruction for this person's run. False if there is no run, or
+    the report is not one of its open forms."""
+    run = current_run()
+    if not run:
+        return False
+    if kind != "cancel_all" and rid not in run.reports:
+        return False
+    run.commands.put({"kind": kind, "rid": rid, **extra})
+    return True
+
+
+def frame(rid: int) -> bytes | None:
+    """The latest live-view picture of one form, and ask the run for a fresh one."""
+    run = current_run()
+    if not run or rid not in run.reports:
+        return None
+    run.want_frame.add(rid)
+    got = run.frames.get(rid)
+    # Only a live picture: it is the size of the browser window, so a click on it
+    # lands where it looks. (The preview is the whole page, a different size.)
+    return got[1] if got else b""
+
+
+def sign_in_only(cfg: dict, interactive: bool = True) -> bool:
     """Sign in once and leave the session in the browser profile, so every later
-    report is already signed in. Run via sign-in.bat."""
+    report is already signed in. Run via sign-in.bat, or from the account page."""
     from playwright.sync_api import sync_playwright
     sel = selectors()["fixmystreet"]
-    _log[0] = []
+    _logs()[0] = []
     with sync_playwright() as p:
         ctx = _launch(p, 0)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -2321,8 +2725,10 @@ def sign_in_only(cfg: dict) -> bool:
             page.wait_for_timeout(1800)
             _cookies(page, sel, 0)
             ok = sign_in(page, cfg, sel, 0)
+            if not interactive:
+                return ok
             print()
-            for line in _log.get(0, []):
+            for line in _logs().get(0, []):
                 print("  " + line)
             if ok:
                 # Close automatically: a browser left open here holds the profile
@@ -2379,7 +2785,7 @@ def inspect_form(url: str | None = None) -> str:
             out.append(f"{'V' if f['visible'] else '-'} <{f['tag'].lower()} "
                        f"type={f['type']} id={f['id']} name={f['name']} "
                        f"class={f['cls']}> label={f['label']!r} text={f['text']!r}")
-        dest = config.BASE_DIR / "data" / "form-inspect.txt"
+        dest = config.shared_dir() / "form-inspect.txt"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text("\n".join(out), encoding="utf-8")
         print(f"\nWrote {dest}\nLeaving the browser open - close it when done.")
